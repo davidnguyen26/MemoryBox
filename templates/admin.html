@@ -1,0 +1,776 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Panel - MemoryBox{% endblock %}
+
+{% block extra_css %}
+<link rel="preload" href="{{ url_for('static', filename='css/admin.min.css') }}" as="style"
+    onload="this.onload=null;this.rel='stylesheet'">
+<noscript>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.min.css') }}">
+</noscript>
+<style>
+    /* Additional styles for dashboard */
+    .admin-tabs {
+        display: flex;
+        gap: 8px;
+        background: rgba(255, 255, 255, 0.15);
+        backdrop-filter: blur(10px);
+        padding: 8px;
+        border-radius: 16px;
+        margin-bottom: 32px;
+    }
+
+    .tab-btn {
+        flex: 1;
+        padding: 12px 24px;
+        border: none;
+        border-radius: 12px;
+        background: transparent;
+        color: rgba(255, 255, 255, 0.7);
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+    }
+
+    .tab-btn.active {
+        background: white;
+        color: #667eea;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+
+    .tab-btn:hover:not(.active) {
+        background: rgba(255, 255, 255, 0.1);
+    }
+
+    .tab-content {
+        display: none;
+        animation: fadeIn 0.4s ease;
+    }
+
+    .tab-content.active {
+        display: block;
+    }
+
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .dashboard-grid {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 24px;
+        margin-bottom: 32px;
+    }
+
+    .panel {
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(20px);
+        border-radius: 24px;
+        padding: 28px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+    }
+
+    .panel h3 {
+        font-size: 1.3rem;
+        font-weight: 700;
+        margin: 0 0 20px 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: #0f172a;
+    }
+
+    .panel h3 i {
+        color: #667eea;
+    }
+
+    .activity-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .activity-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px;
+        background: #f8fafc;
+        border-radius: 12px;
+        transition: all 0.2s;
+    }
+
+    .activity-item:hover {
+        background: #f1f5f9;
+        transform: translateX(4px);
+    }
+
+    .activity-thumb {
+        width: 48px;
+        height: 48px;
+        border-radius: 10px;
+        object-fit: cover;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .activity-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: 700;
+        font-size: 0.9rem;
+    }
+
+    .activity-content {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .activity-content strong {
+        color: #0f172a;
+        font-weight: 600;
+    }
+
+    .activity-content div {
+        font-size: 0.9rem;
+        color: #334155;
+    }
+
+    .activity-content small {
+        display: block;
+        font-size: 0.8rem;
+        color: #94a3b8;
+        margin-top: 2px;
+    }
+
+    .quick-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .action-btn {
+        padding: 14px 18px;
+        border: none;
+        border-radius: 12px;
+        background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.05));
+        color: #667eea;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 0.95rem;
+    }
+
+    .action-btn:hover {
+        background: linear-gradient(135deg, rgba(102, 126, 234, 0.15), rgba(118, 75, 162, 0.1));
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+    }
+
+    .action-btn i {
+        font-size: 1.1rem;
+    }
+
+    .system-status {
+        margin-top: 24px;
+    }
+
+    .status-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 14px;
+        background: #f8fafc;
+        border-radius: 10px;
+        margin-bottom: 8px;
+    }
+
+    .status-item span {
+        font-weight: 600;
+        font-size: 0.9rem;
+        color: #334155;
+    }
+
+    .status-indicator {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.85rem;
+        color: #64748b;
+    }
+
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+    }
+
+    .status-online {
+        background: #10b981;
+    }
+
+    .status-warning {
+        background: #f59e0b;
+    }
+
+    .status-offline {
+        background: #ef4444;
+    }
+
+    .top-users-section {
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(20px);
+        border-radius: 24px;
+        padding: 28px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+    }
+
+    .top-users-section h3 {
+        font-size: 1.3rem;
+        font-weight: 700;
+        margin: 0 0 20px 0;
+        color: #0f172a;
+    }
+
+    .top-users-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 16px;
+    }
+
+    .top-user-card {
+        padding: 20px;
+        background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+        border-radius: 16px;
+        text-align: center;
+        position: relative;
+        transition: all 0.3s;
+    }
+
+    .top-user-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+    }
+
+    .rank-badge {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #f59e0b, #d97706);
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 0.85rem;
+        box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+    }
+
+    .rank-badge.gold {
+        background: linear-gradient(135deg, #f59e0b, #d97706);
+    }
+
+    .rank-badge.silver {
+        background: linear-gradient(135deg, #cbd5e1, #94a3b8);
+    }
+
+    .rank-badge.bronze {
+        background: linear-gradient(135deg, #fb923c, #ea580c);
+    }
+
+    .top-user-card .user-avatar {
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        margin: 0 auto 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: 700;
+        font-size: 1.5rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    .top-user-card strong {
+        display: block;
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: #0f172a;
+        margin-bottom: 6px;
+    }
+
+    .top-user-card small {
+        font-size: 0.8rem;
+        color: #64748b;
+    }
+
+    @media (max-width: 768px) {
+        .admin-tabs {
+            flex-wrap: wrap;
+        }
+
+        .dashboard-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .top-users-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="admin-container">
+    <!-- Header -->
+    <div class="admin-header">
+        <div class="admin-title">
+            <i class="bi bi-shield-lock-fill"></i>
+            Admin Dashboard
+        </div>
+        <div class="admin-badge">
+            <i class="bi bi-shield-check"></i> Admin Mode
+        </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="admin-tabs">
+        <button class="tab-btn active" onclick="switchTab('overview')">
+            <i class="bi bi-speedometer2"></i>
+            <span>Overview</span>
+        </button>
+        <button class="tab-btn" onclick="switchTab('users')">
+            <i class="bi bi-people"></i>
+            <span>Users</span>
+        </button>
+        <button class="tab-btn" onclick="switchTab('photos')">
+            <i class="bi bi-images"></i>
+            <span>Photos</span>
+        </button>
+    </div>
+
+    <!-- ========== OVERVIEW TAB ========== -->
+    <div class="tab-content active" id="overviewTab">
+        <!-- Stats Grid -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="bi bi-people-fill"></i>
+                </div>
+                <div class="stat-content">
+                    <h3>{{ stats.total_users }}</h3>
+                    <p>Total Users</p>
+                    <small style="color: #10b981; font-weight: 600; margin-top: 8px; display: block;">
+                        <i class="bi bi-arrow-up"></i> {{ stats.active_users }} active
+                    </small>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="bi bi-images"></i>
+                </div>
+                <div class="stat-content">
+                    <h3>{{ stats.total_photos }}</h3>
+                    <p>Total Photos</p>
+                    <small style="color: #10b981; font-weight: 600; margin-top: 8px; display: block;">
+                        <i class="bi bi-arrow-up"></i> +{{ photos[:10]|length }} recent
+                    </small>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="bi bi-heart-fill"></i>
+                </div>
+                <div class="stat-content">
+                    <h3>{{ stats.total_likes }}</h3>
+                    <p>Total Likes</p>
+                    <small style="color: #10b981; font-weight: 600; margin-top: 8px; display: block;">
+                        <i class="bi bi-arrow-up"></i> Engagement rate
+                    </small>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="bi bi-chat-fill"></i>
+                </div>
+                <div class="stat-content">
+                    <h3>{{ stats.total_comments }}</h3>
+                    <p>Total Comments</p>
+                    <small style="color: #10b981; font-weight: 600; margin-top: 8px; display: block;">
+                        <i class="bi bi-arrow-up"></i> Community active
+                    </small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Dashboard Grid -->
+        <div class="dashboard-grid">
+            <!-- Recent Activity -->
+            <div class="panel">
+                <h3>
+                    <i class="bi bi-activity"></i>
+                    Recent Activity
+                </h3>
+                <div class="activity-list">
+                    {% for photo in photos[:5] %}
+                    <div class="activity-item">
+                        <img src="{{ url_for('uploaded_file', filename=photo.filename) }}" class="activity-thumb"
+                            alt="Activity">
+                        <div class="activity-content">
+                            <div>
+                                <strong>{{ photo.uploader.username }}</strong> uploaded a new photo
+                                {% if photo.caption %}
+                                <span style="color: #667eea;">"{{ photo.caption[:30] }}..."</span>
+                                {% endif %}
+                            </div>
+                            <small>{{ time_ago(photo.upload_time) }}</small>
+                        </div>
+                    </div>
+                    {% endfor %}
+
+                    {% for user in users[:3] if user.created_at %}
+                    <div class="activity-item">
+                        <div class="activity-avatar" style="background: {{ user.avatar_color }}">
+                            {% if user.avatar_filename %}
+                            <img src="{{ url_for('avatar_file', filename=user.avatar_filename) }}"
+                                style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">
+                            {% else %}
+                            {{ user.username[0].upper() }}
+                            {% endif %}
+                        </div>
+                        <div class="activity-content">
+                            <div>
+                                <strong>{{ user.username }}</strong> joined MemoryBox
+                            </div>
+                            <small>{{ time_ago(user.created_at) }}</small>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Quick Actions & System Status -->
+            <div>
+                <div class="panel">
+                    <h3>
+                        <i class="bi bi-lightning-charge-fill"></i>
+                        Quick Actions
+                    </h3>
+                    <div class="quick-actions">
+                        <button class="action-btn" onclick="switchTab('users')">
+                            <i class="bi bi-people"></i>
+                            Manage Users
+                        </button>
+                        <button class="action-btn" onclick="switchTab('photos')">
+                            <i class="bi bi-images"></i>
+                            View All Photos
+                        </button>
+                        <button class="action-btn" onclick="window.location.href='{{ url_for('gallery') }}'">
+                            <i class="bi bi-arrow-left-circle"></i>
+                            Back to Gallery
+                        </button>
+                    </div>
+
+                    <div class="system-status">
+                        <h4 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 12px; color: #0f172a;">
+                            System Status
+                        </h4>
+                        <div class="status-item">
+                            <span>Server</span>
+                            <div class="status-indicator">
+                                <span style="color: #10b981; font-weight: 600;">Online</span>
+                                <div class="status-dot status-online"></div>
+                            </div>
+                        </div>
+                        <div class="status-item">
+                            <span>Database</span>
+                            <div class="status-indicator">
+                                <span style="color: #10b981; font-weight: 600;">Online</span>
+                                <div class="status-dot status-online"></div>
+                            </div>
+                        </div>
+                        <div class="status-item">
+                            <span>Total Storage</span>
+                            <div class="status-indicator">
+                                <span style="color: #64748b; font-weight: 600;">{{ stats.total_photos }} items</span>
+                                <div class="status-dot status-online"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Top Users -->
+        <div class="top-users-section">
+            <h3>🏆 Top Contributors</h3>
+            <div class="top-users-grid">
+                {% for user in top_users %}
+                <div class="top-user-card">
+                    <div
+                        class="rank-badge {% if loop.index == 1 %}gold{% elif loop.index == 2 %}silver{% elif loop.index == 3 %}bronze{% endif %}">
+                        #{{ loop.index }}
+                    </div>
+                    <div class="user-avatar" style="background: {{ user.avatar_color }}">
+                        {% if user.avatar_filename %}
+                        <img src="{{ url_for('avatar_file', filename=user.avatar_filename) }}"
+                            style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">
+                        {% else %}
+                        {{ user.username[0].upper() }}
+                        {% endif %}
+                    </div>
+                    <strong>{{ user.username }}</strong>
+                    <small>{{ user.photos|length }} photos • {{ user.get_total_likes() }} likes</small>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== USERS TAB ========== -->
+    <div class="tab-content" id="usersTab">
+        <div class="section">
+            <div class="section-header">
+                <div class="section-title">
+                    <i class="bi bi-people"></i>
+                    User Management
+                </div>
+            </div>
+            <div class="section-body">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>User</th>
+                            <th>Email</th>
+                            <th>Role</th>
+                            <th>Photos</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for user in users %}
+                        <tr>
+                            <td>
+                                <div class="user-info">
+                                    <div class="avatar-table" style="background: {{ user.avatar_color }}">
+                                        {% if user.avatar_filename %}
+                                        <img src="{{ url_for('avatar_file', filename=user.avatar_filename) }}"
+                                            alt="{{ user.username }}" loading="lazy">
+                                        {% else %}
+                                        <span>{{ user.username[0].upper() }}</span>
+                                        {% endif %}
+                                    </div>
+                                    <div class="user-details">
+                                        <strong>
+                                            {{ get_username_html(user)|safe }}
+                                        </strong>
+                                        <small>{{ time_ago(user.created_at) }}</small>
+                                    </div>
+                                </div>
+                            </td>
+                            <td>{{ user.email }}</td>
+                            <td>
+                                {% if user.role == 'admin' %}
+                                <span class="badge badge-admin">
+                                    <i class="bi bi-shield-fill"></i> Admin
+                                </span>
+                                {% else %}
+                                <span class="badge badge-user">
+                                    <i class="bi bi-person"></i> User
+                                </span>
+                                {% endif %}
+                            </td>
+                            <td>{{ user.photos|length }}</td>
+                            <td>
+                                {% if user.is_blocked %}
+                                <span class="badge badge-blocked">
+                                    <i class="bi bi-ban"></i> Blocked
+                                </span>
+                                {% else %}
+                                <span class="badge badge-active">
+                                    <i class="bi bi-check-circle"></i> Active
+                                </span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if user.id != session.user_id and user.role != 'admin' %}
+                                <div class="btn-group">
+                                    <form method="POST" action="{{ url_for('toggle_block_user', user_id=user.id) }}"
+                                        style="display: inline; margin: 0;">
+                                        {% if user.is_blocked %}
+                                        <button type="submit" class="btn-sm btn-success">
+                                            <i class="bi bi-unlock"></i> Unblock
+                                        </button>
+                                        {% else %}
+                                        <button type="submit" class="btn-sm btn-danger"
+                                            onclick="return confirm('Block {{ user.username }}?')">
+                                            <i class="bi bi-ban"></i> Block
+                                        </button>
+                                        {% endif %}
+                                    </form>
+
+                                    <form method="POST" action="{{ url_for('toggle_verify_user', user_id=user.id) }}"
+                                        style="display: inline; margin: 0;">
+                                        {% if user.is_verified %}
+                                        <button type="submit" class="btn-sm btn-secondary">
+                                            <i class="bi bi-x"></i> Unverify
+                                        </button>
+                                        {% else %}
+                                        <button type="submit" class="btn-sm btn-info">
+                                            <i class="fa-solid fa-circle-check"></i> Verify
+                                        </button>
+                                        {% endif %}
+                                    </form>
+
+                                    {% if user.role != 'admin' %}
+                                    <form method="POST" action="{{ url_for('create_admin') }}"
+                                        style="display: inline; margin: 0;">
+                                        <input type="hidden" name="user_id" value="{{ user.id }}">
+                                        <button type="submit" class="btn-sm btn-warning"
+                                            onclick="return confirm('Make {{ user.username }} admin?')">
+                                            <i class="bi bi-shield-plus"></i> Make Admin
+                                        </button>
+                                    </form>
+                                    {% endif %}
+                                </div>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== PHOTOS TAB ========== -->
+    <div class="tab-content" id="photosTab">
+        <div class="section">
+            <div class="section-header">
+                <div class="section-title">
+                    <i class="bi bi-images"></i>
+                    Photo Management
+                </div>
+            </div>
+            <div class="section-body">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Photo</th>
+                            <th>Uploader</th>
+                            <th>Caption</th>
+                            <th>Likes</th>
+                            <th>Time</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for photo in photos %}
+                        <tr>
+                            <td>
+                                <img src="{{ url_for('uploaded_file', filename=photo.filename) }}" alt="Photo"
+                                    class="photo-thumb">
+                            </td>
+                            <td>
+                                <div class="user-info">
+                                    <div class="avatar-table" style="background: {{ photo.uploader.avatar_color }}">
+                                        {% if photo.uploader.avatar_filename %}
+                                        <img src="{{ url_for('avatar_file', filename=photo.uploader.avatar_filename) }}"
+                                            alt="{{ photo.uploader.username }}" loading="lazy">
+                                        {% else %}
+                                        <span>{{ photo.uploader.username[0].upper() }}</span>
+                                        {% endif %}
+                                    </div>
+                                    <div class="user-details">
+                                        <strong>
+                                            <a href="{{ url_for('view_user_profile', user_id=photo.uploader.id) }}"
+                                                style="text-decoration: none; color: inherit;">
+                                                {{ photo.uploader.username }}
+                                                {% if photo.uploader.is_verified %}
+                                                <i class="fa-solid fa-circle-check verified-badge"></i>
+                                                {% endif %}
+                                            </a>
+                                        </strong>
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                {% if photo.caption %}
+                                {{ photo.caption[:40] }}{% if photo.caption|length > 40 %}...{% endif %}
+                                {% else %}
+                                <span style="color: #94a3b8;">—</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <span style="color: #ef4444; font-weight: 600;">
+                                    {{ photo.get_like_count() }}
+                                </span>
+                            </td>
+                            <td>{{ time_ago(photo.upload_time) }}</td>
+                            <td>
+                                <div class="btn-group">
+                                    <a href="{{ url_for('uploaded_file', filename=photo.filename) }}" download
+                                        class="btn-sm btn-info">
+                                        <i class="bi bi-download"></i>
+                                    </a>
+                                    <form method="POST" action="{{ url_for('delete_photo', photo_id=photo.id) }}"
+                                        style="display: inline; margin: 0;"
+                                        onsubmit="return confirm('Delete this photo?');">
+                                        <button type="submit" class="btn-sm btn-danger">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function switchTab(tabName) {
+        // Remove active from all tabs and contents
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        document.querySelectorAll('.tab-content').forEach(content => {
+            content.classList.remove('active');
+        });
+
+        // Add active to clicked tab and corresponding content
+        event.target.closest('.tab-btn').classList.add('active');
+        document.getElementById(tabName + 'Tab').classList.add('active');
+    }
+</script>
+{% endblock %}

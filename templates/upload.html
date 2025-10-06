@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+
+{% block title %}Upload - MemoryBox{% endblock %}
+
+{% block extra_css %}
+<link rel="preload" href="{{ url_for('static', filename='css/upload.min.css') }}" as="style" onload="this.onload=null;this.rel='stylesheet'">
+<noscript>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/upload.min.css') }}">
+</noscript>
+{% endblock %}
+
+{% block content %}
+<div class="upload-container">
+    <div class="upload-card">
+        <div class="upload-header">
+            <h2><i class="bi bi-cloud-upload"></i> Upload New Images</h2>
+            <p>Share your memorable moments</p>
+        </div>
+        
+        <div class="drop-zone" id="dropZone" onclick="document.getElementById('photoInput').click()">
+            <div class="drop-zone-icon">
+                <i class="bi bi-cloud-upload"></i>
+            </div>
+            <h4>Choose or drag and drop images</h4>
+            <p>Có thể chọn nhiều ảnh cùng lúc</p>
+            <div class="file-info">
+                <div class="file-info-item">
+                    <i class="bi bi-images"></i>
+                    <span>Multiple Images</span>
+                </div>
+                <div class="file-info-item">
+                    <i class="bi bi-file-image"></i>
+                    <span>JPG, PNG, GIF</span>
+                </div>
+                <div class="file-info-item">
+                    <i class="bi bi-hdd"></i>
+                    <span>Max 10MB/image</span>
+                </div>
+            </div>
+            <input type="file" id="photoInput" accept="image/*" multiple>
+        </div>
+        
+        <div class="preview-section" id="previewSection">
+            <div class="preview-header">
+                <div class="preview-count">
+                    <i class="bi bi-images"></i> Selected: <span id="photoCount">0</span> images
+                </div>
+                <button class="btn-clear" onclick="clearAll()">
+                    <i class="bi bi-trash"></i> Clear All
+                </button>
+            </div>
+            
+            <div class="photos-grid" id="photosGrid"></div>
+            
+            <div class="upload-submit">
+                <button class="btn-upload" onclick="uploadAll()">
+                    <i class="bi bi-cloud-upload-fill"></i> Upload <span id="uploadCount">0</span> images
+                </button>
+                <div class="upload-tip">
+                    💡 Add captions to each image for better organization
+                </div>
+                
+                <div class="upload-progress" id="uploadProgress">
+                    <div class="progress">
+                        <div class="progress-bar" id="progressBar" style="width: 0%">0%</div>
+                    </div>
+                    <div class="upload-status" id="uploadStatus">Uploading...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let selectedFiles = [];
+let photoCaptions = {};
+
+const photoInput = document.getElementById('photoInput');
+const dropZone = document.getElementById('dropZone');
+const previewSection = document.getElementById('previewSection');
+const photosGrid = document.getElementById('photosGrid');
+
+photoInput.addEventListener('change', e => handleFiles(Array.from(e.target.files)));
+
+dropZone.addEventListener('dragover', e => {
+    e.preventDefault();
+    dropZone.classList.add('drag-over');
+});
+
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+
+dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+    if (files.length > 0) handleFiles(files);
+});
+
+function handleFiles(files) {
+    files.forEach(file => {
+        if (!selectedFiles.some(f => f.name === file.name && f.size === file.size)) {
+            selectedFiles.push(file);
+        }
+    });
+    renderPreviews();
+    previewSection.classList.add('active');
+}
+
+function renderPreviews() {
+    photosGrid.innerHTML = '';
+    document.getElementById('photoCount').textContent = selectedFiles.length;
+    document.getElementById('uploadCount').textContent = selectedFiles.length;
+    
+    selectedFiles.forEach((file, index) => {
+        const reader = new FileReader();
+        reader.onload = e => {
+            const card = document.createElement('div');
+            card.className = 'photo-preview-card';
+            card.innerHTML = `
+                <div class="preview-img-wrapper">
+                    <img src="${e.target.result}" alt="${file.name}">
+                    <button class="remove-btn" onclick="removePhoto(${index})">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+                <div class="photo-info">
+                    <div class="photo-name" title="${file.name}">${file.name}</div>
+                    <div class="photo-size">${formatSize(file.size)}</div>
+                    <input type="text" class="caption-input" 
+                           placeholder="Caption..." 
+                           value="${photoCaptions[index] || ''}"
+                           onchange="photoCaptions[${index}] = this.value">
+                </div>
+            `;
+            photosGrid.appendChild(card);
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
+function removePhoto(index) {
+    selectedFiles.splice(index, 1);
+    delete photoCaptions[index];
+    
+    const newCaptions = {};
+    Object.keys(photoCaptions).forEach(key => {
+        const k = parseInt(key);
+        if (k > index) newCaptions[k - 1] = photoCaptions[key];
+        else if (k < index) newCaptions[k] = photoCaptions[key];
+    });
+    photoCaptions = newCaptions;
+    
+    if (selectedFiles.length === 0) {
+        previewSection.classList.remove('active');
+        photoInput.value = '';
+    } else {
+        renderPreviews();
+    }
+}
+
+function clearAll() {
+    if (confirm('Clear all selected images?')) {
+        selectedFiles = [];
+        photoCaptions = {};
+        previewSection.classList.remove('active');
+        photoInput.value = '';
+    }
+}
+
+function formatSize(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round(bytes / Math.pow(k, i) * 10) / 10 + ' ' + sizes[i];
+}
+
+async function uploadAll() {
+    if (selectedFiles.length === 0) {
+        alert('Please select at least 1 image!');
+        return;
+    }
+    
+    const uploadProgress = document.getElementById('uploadProgress');
+    const progressBar = document.getElementById('progressBar');
+    const uploadStatus = document.getElementById('uploadStatus');
+    const uploadBtn = document.querySelector('.btn-upload');
+    
+    uploadBtn.disabled = true;
+    uploadBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Uploading...';
+    uploadProgress.classList.add('active');
+    
+    let success = 0;
+    let fail = 0;
+    
+    for (let i = 0; i < selectedFiles.length; i++) {
+        const formData = new FormData();
+        formData.append('photo', selectedFiles[i]);
+        formData.append('caption', photoCaptions[i] || '');
+        
+        try {
+            const response = await fetch('{{ url_for("upload") }}', {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (response.ok) success++;
+            else fail++;
+        } catch (error) {
+            fail++;
+        }
+        
+        const progress = Math.round(((i + 1) / selectedFiles.length) * 100);
+        progressBar.style.width = progress + '%';
+        progressBar.textContent = progress + '%';
+        uploadStatus.textContent = `Đang tải: ${i + 1}/${selectedFiles.length}`;
+    }
+
+    uploadStatus.textContent = `✅ Completed! ${success} images uploaded successfully${fail > 0 ? `, ${fail} failed` : ''}`;
+    setTimeout(() => window.location.href = '{{ url_for("gallery") }}', 1500);
+}
+</script>
+{% endblock %}

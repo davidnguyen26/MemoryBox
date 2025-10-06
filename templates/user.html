@@ -1,0 +1,835 @@
+{% extends "base.html" %}
+
+{% block title %}{{ user.username }} - MemoryBox{% endblock %}
+
+{% block extra_css %}
+<link rel="preload" href="{{ url_for('static', filename='css/user.min.css') }}" as="style"
+    onload="this.onload=null;this.rel='stylesheet'">
+<noscript>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/user.min.css') }}">
+</noscript>
+<link rel="preload" href="{{ url_for('static', filename='css/gallery.min.css') }}" as="style"
+    onload="this.onload=null;this.rel='stylesheet'">
+<noscript>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/gallery.min.css') }}">
+</noscript>
+{% endblock %}
+
+{% block content %}
+<div class="profile-container" data-current-user-id="{{ user.id }}">
+    <!-- COMPACT HEADER with inline stats -->
+    <div class="profile-header">
+        <!-- LEFT: Avatar Section (35%) -->
+        <div class="profile-left">
+            <div class="avatar-upload-wrapper">
+                <div class="profile-avatar" style="background: {{ user.avatar_color }}" data-user-id="{{ user.id }}">
+                    {% if user.avatar_filename %}
+                    <img src="{{ url_for('avatar_file', filename=user.avatar_filename) }}" alt="{{ user.username }}"
+                        loading="lazy">
+                    {% else %}
+                    <span>{{ user.username[0].upper() }}</span>
+                    {% endif %}
+                </div>
+
+                {% if is_own_profile %}
+                <div class="avatar-upload-overlay" data-bs-toggle="modal" data-bs-target="#avatarModal">
+                    <i class="bi bi-camera-fill"></i>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- RIGHT: Info Section (65%) -->
+        <div class="profile-right">
+            <div class="profile-info">
+                <h1 class="profile-name">
+                    <span
+                        class="{% if user.is_most_liked() %}username-hot{% elif user.is_top_creator() %}username-creator{% else %}username-display{% endif %}">
+                        {{ user.username }}
+                    </span>
+                    {% if user.is_verified %}
+                    <i class="fa-solid fa-circle-check verified-icon"></i>
+                    {% endif %}
+                </h1>
+
+                <div class="profile-email">
+                    <i class="bi bi-envelope"></i> {{ user.email }}
+                    <span style="margin: 0 6px;">•</span>
+                    <i class="bi bi-calendar3"></i> Joined {{ time_ago(user.created_at) }}
+                </div>
+
+                <!-- ANIMATED BADGE CAROUSEL -->
+                {% set carousel_badges = get_carousel_badges(user, photos|length) %}
+                {% if carousel_badges %}
+                <div class="badge-carousel">
+                    <div class="badge-track">
+                        {% for badge in carousel_badges %}
+                        <span class="badge-item {{ badge.class }}">
+                            <span>{{ badge.icon }}</span>
+                            <span>{{ badge.text }}</span>
+                        </span>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- INLINE STATS -->
+                <div class="profile-stats">
+                    <div class="stat">
+                        <div class="stat-icon"><i class="bi bi-images"></i></div>
+                        <div class="stat-info">
+                            <div class="stat-value">{{ photos|length }}</div>
+                            <div class="stat-label">Photos</div>
+                        </div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-icon"><i class="bi bi-heart-fill"></i></div>
+                        <div class="stat-info">
+                            <div class="stat-value">{{ user.get_total_likes() }}</div>
+                            <div class="stat-label">Likes</div>
+                        </div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-icon"><i class="bi bi-chat-fill"></i></div>
+                        <div class="stat-info">
+                            <div class="stat-value">{{ user.get_comment_count() }}</div>
+                            <div class="stat-label">Comments</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- QUICK ACTIONS -->
+                <div class="profile-actions">
+                    {% if is_own_profile %}
+                    <button class="btn-profile btn-profile-primary" data-bs-toggle="modal" data-bs-target="#editModal">
+                        <i class="bi bi-pencil"></i> Edit Profile
+                    </button>
+                    <a href="{{ url_for('change_password') }}" class="btn-profile btn-profile-secondary">
+                        <i class="bi bi-key"></i> Password
+                    </a>
+                    <a href="{{ url_for('logout') }}" class="btn-profile btn-profile-secondary">
+                        <i class="bi bi-box-arrow-right"></i>
+                    </a>
+                    {% endif %}
+                    <a href="{{ url_for('gallery') }}" class="btn-profile btn-profile-secondary">
+                        <i class="bi bi-arrow-left"></i> Gallery
+                    </a>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- TWO COLUMN LAYOUT: Sidebar + Content -->
+    <div class="profile-main">
+        <!-- LEFT SIDEBAR: About Card -->
+        <aside class="profile-sidebar">
+            <div class="about-card">
+                <h3 class="about-card-title">
+                    <i class="bi bi-person-circle"></i>
+                    About
+                </h3>
+
+                {% if user.bio or user.contact_info or is_own_profile %}
+                <div class="bio-section">
+                    {% if user.bio %}
+                    <div class="bio-text">{{ user.bio }}</div>
+                    {% endif %}
+
+                    {% if user.contact_info %}
+                    <div class="contact-info">
+                        <i class="bi bi-telephone"></i> {{ user.contact_info }}
+                    </div>
+                    {% endif %}
+
+                    {% if not user.bio and not user.contact_info and is_own_profile %}
+                    <div style="text-align: center; padding: 20px 0;">
+                        <button class="btn-profile btn-profile-primary" data-bs-toggle="modal"
+                            data-bs-target="#editModal" style="width: 100%;">
+                            <i class="bi bi-plus-circle"></i> Add Info
+                        </button>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+            </div>
+        </aside>
+
+        <!-- RIGHT CONTENT: Photos -->
+        <div class="profile-content">
+            <!-- Section Header instead of tabs -->
+            <div class="section-header">
+                <h2 class="section-title">
+                    <i class="bi bi-grid-3x3"></i>
+                    Photos
+                </h2>
+                <span class="photo-count">{{ photos|length }} photos</span>
+            </div>
+
+            <!-- Photos Grid -->
+            <div class="tab-content active" id="photosTab">
+                {% if photos %}
+                <div class="photos-grid">
+                    {% for photo in photos %}
+                    <div class="photo-card" onclick="openLightbox({{ loop.index0 }}, 'photos')">
+                        <div class="photo-image-wrapper">
+                            <img src="{{ url_for('uploaded_file', filename=photo.filename|replace('.jpg', '_thumb.jpg')) }}"
+                            data-full="{{ url_for('uploaded_file', filename=photo.filename) }}"
+                            srcset="{{ url_for('uploaded_file', filename=photo.filename|replace('.jpg', '_thumb.jpg')) }} 300w,
+                                 {{ url_for('uploaded_file', filename=photo.filename) }} 1920w"
+                            sizes="(max-width: 768px) 100vw, 33vw"
+                            alt="{{ photo.caption or 'Photo' }}"
+                            class="photo-image"
+                            loading="lazy"
+                            decoding="async">
+                        </div>
+
+                        <div class="photo-overlay">
+                            <div class="photo-top-info">
+                                <div class="photo-user">
+                                    <div class="user-avatar" style="background: {{ photo.uploader.avatar_color }}"
+                                        data-user-id="{{ photo.uploader.id }}">
+                                        {% if photo.uploader.avatar_filename %}
+                                        <img src="{{ url_for('avatar_file', filename=photo.uploader.avatar_filename) }}"
+                                            alt="{{ photo.uploader.username }}">
+                                        {% else %}
+                                        <span>{{ photo.uploader.username[0].upper() }}</span>
+                                        {% endif %}
+                                    </div>
+                                    <div class="user-info">
+                                        <div class="user-name">
+                                            {{ photo.uploader.username }}
+                                            {% if photo.uploader.is_verified %}
+                                            <i class="fa-solid fa-circle-check" style="font-size: 0.75rem;"></i>
+                                            {% endif %}
+                                        </div>
+                                        <div class="user-time">{{ time_ago(photo.upload_time) }}</div>
+                                    </div>
+                                </div>
+
+                                <div class="photo-quick-actions" onclick="event.stopPropagation()">
+                                    <button class="quick-action-btn" title="Download">
+                                        <a href="{{ url_for('uploaded_file', filename=photo.filename) }}" download
+                                            style="color: inherit; text-decoration: none;">
+                                            <i class="bi bi-download"></i>
+                                        </a>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="photo-bottom-info">
+                                {% if photo.caption %}
+                                <div class="photo-caption">{{ photo.caption }}</div>
+                                {% else %}
+                                <div></div>
+                                {% endif %}
+
+                                <div class="photo-actions" onclick="event.stopPropagation()">
+                                    <button
+                                        class="action-btn {% if photo.is_liked_by(session.user_id) %}active{% endif %}"
+                                        onclick="toggleLike({{ photo.id }}, this)">
+                                        <i class="bi bi-heart-fill"></i>
+                                        <span class="like-count">{{ photo.get_like_count() }}</span>
+                                    </button>
+                                    <button class="action-btn">
+                                        <i class="bi bi-chat-fill"></i>
+                                        <span class="comment-count">0</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="empty-state">
+                    <i class="bi bi-image"></i>
+                    <h4>No photos uploaded yet</h4>
+                    {% if is_own_profile %}
+                    <a href="{{ url_for('upload') }}" class="btn-profile btn-profile-primary mt-3">
+                        <i class="bi bi-cloud-upload"></i> Upload your first photo
+                    </a>
+                    {% endif %}
+                </div>
+                {% endif %}
+                
+            </div>
+        </div>
+    </div>
+    
+</div>
+
+<!-- Edit Profile Modal -->
+{% if is_own_profile %}
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-pencil-square"></i>
+                    Edit Profile
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('edit_profile', user_id=user.id) }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">About You</label>
+                        <textarea class="form-control" name="bio" id="bioInput" maxlength="500" rows="4"
+                            placeholder="Write something about yourself...">{{ user.bio }}</textarea>
+                        <div class="char-count"><span id="bioCount">{{ user.bio|length if user.bio else 0 }}</span>/500
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Contact Information</label>
+                        <input type="text" class="form-control" name="contact_info" id="contactInput" maxlength="200"
+                            value="{{ user.contact_info }}" placeholder="Facebook, Zalo, Phone...">
+                        <div class="char-count"><span id="contactCount">{{ user.contact_info|length if user.contact_info
+                                else 0 }}</span>/200</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Avatar Upload Modal -->
+<div class="modal fade" id="avatarModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-camera"></i> Update Avatar
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="avatar-edit-section">
+                    <div style="position: relative;">
+                        <div class="avatar-preview-large" id="avatarPreviewLarge"
+                            style="background: {{ user.avatar_color }}">
+                            {% if user.avatar_filename %}
+                            <img src="{{ url_for('avatar_file', filename=user.avatar_filename) }}" alt="Avatar">
+                            {% else %}
+                            <span>{{ user.username[0].upper() }}</span>
+                            {% endif %}
+                        </div>
+                        <div class="avatar-loading" id="avatarLoading">
+                            <div class="avatar-spinner"></div>
+                        </div>
+                    </div>
+
+                    <div class="avatar-upload-area" id="avatarUploadArea">
+                        <div class="upload-icon-large">📷</div>
+                        <div style="color: #475569; font-weight: 600; margin-bottom: 8px;">Drag image here</div>
+                        <div style="color: #94a3b8; font-size: 0.85rem;">or click to select (JPG, PNG, max 2MB)</div>
+                    </div>
+
+                    <input type="file" id="avatarFileInput" class="avatar-upload-btn"
+                        accept="image/jpeg,image/png,image/gif">
+
+                    <div style="display: flex; gap: 12px; justify-content: center; margin-top: 16px;">
+                        <button class="btn-avatar btn-avatar-primary" id="avatarUploadBtn" disabled>
+                            <i class="bi bi-cloud-upload"></i> Upload
+                        </button>
+                        {% if user.avatar_filename %}
+                        <button class="btn-avatar btn-avatar-danger" id="avatarDeleteBtn">
+                            <i class="bi bi-trash"></i> Delete
+                        </button>
+                        {% else %}
+                        <button class="btn-avatar btn-avatar-danger" id="avatarDeleteBtn" disabled>
+                            <i class="bi bi-trash"></i> Delete
+                        </button>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Lightbox -->
+<div class="lightbox-modal" id="lightbox">
+    <button class="close-btn" onclick="closeLightbox()">
+        <i class="bi bi-x-lg"></i>
+    </button>
+
+    <div class="lightbox-wrapper">
+        <div class="lightbox-image-section">
+            <img id="lightboxImage" src="" alt="" class="lightbox-image">
+            <button class="nav-btn prev" onclick="navigateLightbox(-1)">
+                <i class="bi bi-chevron-left"></i>
+            </button>
+            <button class="nav-btn next" onclick="navigateLightbox(1)">
+                <i class="bi bi-chevron-right"></i>
+            </button>
+        </div>
+
+        <div class="lightbox-sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-user">
+                    <div id="sidebarAvatar" class="sidebar-avatar" onclick="goToUserProfile()"></div>
+                    <div class="sidebar-user-info">
+                        <h3><a href="#" id="sidebarUsernameLink"></a></h3>
+                        <p id="sidebarTime"></p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-caption" id="sidebarCaption" style="display: none;">
+                <p class="caption-text" id="captionText"></p>
+            </div>
+
+            <div class="sidebar-stats">
+                <div class="stat-item">
+                    <i class="bi bi-heart-fill" style="color: #ef4444;"></i>
+                    <span id="likeCount">0</span> likes
+                </div>
+                <div class="stat-item">
+                    <i class="bi bi-chat-fill" style="color: #667eea;"></i>
+                    <span id="commentCountSidebar">0</span> comments
+                </div>
+            </div>
+
+            <div class="sidebar-comments" id="commentsSection">
+                <div class="comments-title">Comments</div>
+                <div id="commentsList"></div>
+            </div>
+
+            <div class="sidebar-form">
+                <div class="comment-form">
+                    <textarea id="commentInput" class="comment-input" placeholder="Write a comment..."
+                        rows="1"></textarea>
+                    <button class="comment-submit" onclick="submitComment()">
+                        <i class="bi bi-send-fill"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const photos = {{ photos_json | tojson }};
+    let currentPhotoIndex = 0;
+    const currentUserId = {{ session.user_id }};
+    const isAdmin = {{ 'true' if session.role == 'admin' else 'false' }};
+
+    // Avatar Upload System
+    class AvatarUploader {
+        constructor(userId) {
+            this.userId = userId;
+            this.selectedFile = null;
+            this.maxSize = 2 * 1024 * 1024;
+            this.init();
+        }
+
+        init() {
+            this.fileInput = document.getElementById('avatarFileInput');
+            this.uploadArea = document.getElementById('avatarUploadArea');
+            this.preview = document.getElementById('avatarPreviewLarge');
+            this.uploadBtn = document.getElementById('avatarUploadBtn');
+            this.deleteBtn = document.getElementById('avatarDeleteBtn');
+            this.loading = document.getElementById('avatarLoading');
+
+            if (this.fileInput) {
+                this.fileInput.addEventListener('change', (e) => this.handleFileSelect(e));
+            }
+
+            if (this.uploadArea) {
+                this.uploadArea.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    this.uploadArea.classList.add('dragover');
+                });
+                this.uploadArea.addEventListener('dragleave', () => {
+                    this.uploadArea.classList.remove('dragover');
+                });
+                this.uploadArea.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    this.uploadArea.classList.remove('dragover');
+                    const file = e.dataTransfer.files[0];
+                    if (file) this.processFile(file);
+                });
+                this.uploadArea.addEventListener('click', () => this.fileInput?.click());
+            }
+
+            if (this.uploadBtn) {
+                this.uploadBtn.addEventListener('click', () => this.uploadAvatar());
+            }
+
+            if (this.deleteBtn) {
+                this.deleteBtn.addEventListener('click', () => this.deleteAvatar());
+            }
+        }
+
+        handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (file) this.processFile(file);
+        }
+
+        processFile(file) {
+            if (!['image/jpeg', 'image/png', 'image/gif'].includes(file.type)) {
+                alert('Only JPG, PNG, GIF files allowed');
+                return;
+            }
+
+            if (file.size > this.maxSize) {
+                alert('File too large! Max 2MB');
+                return;
+            }
+
+            this.selectedFile = file;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                let img = this.preview.querySelector('img');
+                if (!img) {
+                    img = document.createElement('img');
+                    this.preview.appendChild(img);
+                }
+                img.src = e.target.result;
+                img.style.display = 'block';
+
+                const letter = this.preview.querySelector('span');
+                if (letter) letter.style.display = 'none';
+
+                this.uploadBtn.disabled = false;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async uploadAvatar() {
+            if (!this.selectedFile) return;
+
+            const formData = new FormData();
+            formData.append('avatar', this.selectedFile);
+
+            this.loading.classList.add('active');
+            this.uploadBtn.disabled = true;
+
+            try {
+                const response = await fetch(`/user/${this.userId}/upload-avatar`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    alert('Avatar updated successfully!');
+                    setTimeout(() => window.location.reload(), 1000);
+                } else {
+                    alert(data.error || 'Upload failed');
+                    this.uploadBtn.disabled = false;
+                }
+            } catch (error) {
+                alert('Connection error: ' + error.message);
+                this.uploadBtn.disabled = false;
+            } finally {
+                this.loading.classList.remove('active');
+            }
+        }
+
+        async deleteAvatar() {
+            if (!confirm('Are you sure you want to delete your avatar?')) return;
+
+            this.loading.classList.add('active');
+
+            try {
+                const response = await fetch(`/user/${this.userId}/delete-avatar`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    alert('Avatar deleted');
+                    setTimeout(() => window.location.reload(), 1000);
+                } else {
+                    alert('Delete failed');
+                }
+            } catch (error) {
+                alert('Connection error: ' + error.message);
+            } finally {
+                this.loading.classList.remove('active');
+            }
+        }
+    }
+
+    // Initialize avatar uploader
+    if (document.getElementById('avatarFileInput')) {
+        new AvatarUploader({{ user.id }});
+    }
+
+    // Character counters
+    {% if is_own_profile %}
+    const bioInput = document.getElementById('bioInput');
+    const bioCount = document.getElementById('bioCount');
+    const contactInput = document.getElementById('contactInput');
+    const contactCount = document.getElementById('contactCount');
+
+    if (bioInput) {
+        bioInput.addEventListener('input', () => {
+            bioCount.textContent = bioInput.value.length;
+        });
+    }
+
+    if (contactInput) {
+        contactInput.addEventListener('input', () => {
+            contactCount.textContent = contactInput.value.length;
+        });
+    }
+    {% endif %}
+
+    // Lightbox functions
+    function openLightbox(index) {
+        currentPhotoIndex = index;
+        updateLightbox();
+        document.getElementById('lightbox').classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeLightbox() {
+        document.getElementById('lightbox').classList.remove('active');
+        document.body.style.overflow = '';
+    }
+
+    function navigateLightbox(direction) {
+        currentPhotoIndex += direction;
+        if (currentPhotoIndex < 0) currentPhotoIndex = photos.length - 1;
+        if (currentPhotoIndex >= photos.length) currentPhotoIndex = 0;
+        updateLightbox();
+    }
+
+    function updateLightbox() {
+        const photo = photos[currentPhotoIndex];
+        document.getElementById('lightboxImage').src = `/uploads/${photo.filename}`;
+
+        const avatar = document.getElementById('sidebarAvatar');
+        avatar.style.background = photo.uploader.avatar_color;
+
+        if (photo.uploader.avatar_filename) {
+            avatar.innerHTML = `<img src="/avatars/${photo.uploader.avatar_filename}" alt="${photo.uploader.username}" loading="lazy">`;
+        } else {
+            avatar.textContent = photo.uploader.username[0].toUpperCase();
+        }
+        avatar.dataset.userId = photo.uploader.id;
+
+        let usernameHTML = photo.uploader.username;
+        if (photo.uploader.is_verified) {
+            usernameHTML += ' <i class="fa-solid fa-circle-check" style="color: #3b82f6; font-size: 0.85rem;"></i>';
+        }
+
+        const usernameLink = document.getElementById('sidebarUsernameLink');
+        usernameLink.innerHTML = usernameHTML;
+        usernameLink.href = `/user/${photo.uploader.id}`;
+
+        document.getElementById('sidebarTime').innerHTML = `<i class="bi bi-clock"></i> ${getTimeAgo(photo.upload_time)}`;
+
+        const captionSection = document.getElementById('sidebarCaption');
+        if (photo.caption) {
+            captionSection.style.display = 'block';
+            document.getElementById('captionText').textContent = photo.caption;
+        } else {
+            captionSection.style.display = 'none';
+        }
+
+        document.getElementById('likeCount').textContent = photo.like_count;
+        loadComments(photo.id);
+    }
+
+    function goToUserProfile() {
+        const userId = document.getElementById('sidebarAvatar').dataset.userId;
+        window.location.href = `/user/${userId}`;
+    }
+
+    async function loadComments(photoId) {
+        try {
+            const response = await fetch(`/photo/${photoId}/comments`);
+            const comments = await response.json();
+
+            document.getElementById('commentCountSidebar').textContent = comments.length;
+
+            const commentsList = document.getElementById('commentsList');
+            if (comments.length === 0) {
+                commentsList.innerHTML = '<div class="empty-comments"><i class="bi bi-chat-dots"></i><p>No comments yet</p></div>';
+                return;
+            }
+
+            commentsList.innerHTML = comments.map(c => renderComment(c)).join('');
+        } catch (error) {
+            console.error('Error loading comments:', error);
+        }
+    }
+
+    function renderComment(comment) {
+        const canDelete = comment.user.id === currentUserId || isAdmin;
+        return `
+            <div class="comment" id="comment-${comment.id}">
+                <div class="comment-avatar" style="background: ${comment.user.avatar_color}" onclick="window.location.href='/user/${comment.user.id}'">
+                    ${comment.user.avatar_filename ?
+                `<img src="/avatars/${comment.user.avatar_filename}" alt="${comment.user.username}" loading="lazy">` :
+                comment.user.username[0].toUpperCase()
+            }
+                </div>
+                <div class="comment-content">
+                    <div class="comment-header">
+                        <span class="comment-author">
+                            <a href="/user/${comment.user.id}">${comment.user.username}</a>
+                            ${comment.user.is_verified ? '<i class="fa-solid fa-circle-check" style="color: #3b82f6; font-size: 0.7rem;"></i>' : ''}
+                        </span>
+                        <span class="comment-time">${getTimeAgo(comment.created_at)}</span>
+                    </div>
+                    <div class="comment-text">${escapeHtml(comment.text)}</div>
+                    <div class="comment-actions">
+                        ${canDelete ? `<button class="comment-action-btn comment-delete" onclick="deleteComment(${comment.id})">Delete</button>` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    async function submitComment() {
+        const input = document.getElementById('commentInput');
+        const text = input.value.trim();
+        if (!text) return;
+
+        const photo = photos[currentPhotoIndex];
+
+        try {
+            const response = await fetch(`/photo/${photo.id}/comment`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text })
+            });
+
+            if (response.ok) {
+                input.value = '';
+                input.style.height = 'auto';
+                loadComments(photo.id);
+                photo.comment_count = (photo.comment_count || 0) + 1;
+            }
+        } catch (error) {
+            console.error('Error submitting comment:', error);
+        }
+    }
+
+    async function deleteComment(commentId) {
+        if (!confirm('Delete this comment?')) return;
+
+        try {
+            const response = await fetch(`/comment/${commentId}/delete`, {
+                method: 'DELETE'
+            });
+
+            if (response.ok) {
+                const photo = photos[currentPhotoIndex];
+                loadComments(photo.id);
+            }
+        } catch (error) {
+            console.error('Error deleting comment:', error);
+        }
+    }
+
+    async function toggleLike(photoId, button) {
+        try {
+            const response = await fetch(`/photo/${photoId}/like`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+
+            const data = await response.json();
+            button.classList.toggle('active', data.liked);
+            button.querySelector('.like-count').textContent = data.like_count;
+
+            const photo = photos.find(p => p.id === photoId);
+            if (photo) photo.like_count = data.like_count;
+
+            if (document.getElementById('lightbox').classList.contains('active')) {
+                document.getElementById('likeCount').textContent = data.like_count;
+            }
+        } catch (error) {
+            console.error('Error toggling like:', error);
+        }
+    }
+
+    function getTimeAgo(uploadTime) {
+        const uploaded = new Date(uploadTime);
+        const now = new Date();
+        const diffMs = now - uploaded;
+        const diffMin = Math.floor(diffMs / 60000);
+        const diffHour = Math.floor(diffMin / 60);
+        const diffDay = Math.floor(diffHour / 24);
+
+        if (diffMin < 1) return 'Just now';
+        if (diffMin < 60) return `${diffMin} min ago`;
+        if (diffHour < 24) return `${diffHour} hours ago`;
+        if (diffDay < 7) return `${diffDay} days ago`;
+        if (diffDay < 30) return `${Math.floor(diffDay / 7)} weeks ago`;
+        if (diffDay < 365) return `${Math.floor(diffDay / 30)} months ago`;
+        return `${Math.floor(diffDay / 365)} years ago`;
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Keyboard navigation
+    document.addEventListener('keydown', e => {
+        const lightbox = document.getElementById('lightbox');
+        if (!lightbox.classList.contains('active')) return;
+
+        const target = e.target;
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+            return;
+        }
+
+        if (e.key === 'ArrowLeft') navigateLightbox(-1);
+        if (e.key === 'ArrowRight') navigateLightbox(1);
+        if (e.key === 'Escape') closeLightbox();
+    });
+
+    // Auto-resize comment input
+    const commentInput = document.getElementById('commentInput');
+    if (commentInput) {
+        commentInput.addEventListener('input', function () {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 100) + 'px';
+        });
+
+        commentInput.addEventListener('keydown', e => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                submitComment();
+            }
+        });
+    }
+
+    // Load comment counts on page load
+    document.addEventListener('DOMContentLoaded', async () => {
+        for (let i = 0; i < photos.length; i++) {
+            const photo = photos[i];
+            try {
+                const response = await fetch(`/photo/${photo.id}/comments`);
+                const comments = await response.json();
+                photo.comment_count = comments.length;
+
+                const cards = document.querySelectorAll('.photo-card');
+                if (cards[i]) {
+                    const countSpan = cards[i].querySelector('.comment-count');
+                    if (countSpan) countSpan.textContent = comments.length;
+                }
+            } catch (error) {
+                console.error(`Error loading comment count for photo ${photo.id}:`, error);
+            }
+        }
+    });
+</script>
+{% endblock %}

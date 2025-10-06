@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}MemoryBox{% endblock %}</title>
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Core CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/all.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/avatar.min.css') }}">
+
+    {% block extra_css %}{% endblock %}
+</head>
+
+<body>
+    <!-- Desktop Navbar -->
+    <nav class="navbar navbar-expand-lg">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('gallery') if session.user_id else url_for('index') }}">
+                <i class="bi bi-camera-fill"></i> MemoryBox
+            </a>
+
+            {% if session.user_id %}
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto align-items-center">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('gallery') }}">
+                            <i class="bi bi-grid-3x3"></i> Gallery
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('upload') }}">
+                            <i class="bi bi-cloud-upload"></i> Upload
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('leaderboard') }}">
+                            <i class="bi bi-trophy"></i> Leaderboard
+                        </a>
+                    </li>
+
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                            {% set current_user = namespace() %}
+                            {% set current_user.data = get_current_user() %}
+                            <div class="avatar-nav" style="background: {{ current_user.data.avatar_color }}">
+                                {% if current_user.data.avatar_filename %}
+                                <img src="{{ url_for('avatar_file', filename=current_user.data.avatar_filename) }}"
+                                    alt="Avatar">
+                                {% else %}
+                                {{ session.username[0].upper() }}
+                                {% endif %}
+                            </div>
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item" href="{{ url_for('profile') }}">
+                                    <i class="bi bi-person"></i> Profile
+                                </a></li>
+                            {% if session.role == 'admin' %}
+                            <li><a class="dropdown-item" href="{{ url_for('admin_panel') }}">
+                                    <i class="bi bi-shield"></i> Admin
+                                </a></li>
+                            {% endif %}
+                            <li>
+                                <hr class="dropdown-divider">
+                            </li>
+                            <li><a class="dropdown-item" href="{{ url_for('logout') }}">
+                                    <i class="bi bi-box-arrow-right"></i> Logout
+                                </a></li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+            {% endif %}
+        </div>
+    </nav>
+
+    <!-- Mobile Bottom Navigation -->
+    {% if session.user_id %}
+    <!-- Mobile Bottom Navigation -->
+    <nav class="bottom-nav">
+        <div class="bottom-nav-container">
+            <a href="{{ url_for('gallery') }}"
+                class="bottom-nav-item {% if request.endpoint == 'gallery' %}active{% endif %}">
+                <i class="bi bi-images"></i>
+                <span>Gallery</span>
+            </a>
+
+            <a href="{{ url_for('leaderboard') }}"
+                class="bottom-nav-item {% if request.endpoint == 'leaderboard' %}active{% endif %}">
+                <i class="bi bi-trophy"></i>
+                <span>Ranks</span>
+            </a>
+
+            <a href="{{ url_for('upload') }}" class="bottom-nav-upload">
+                <i class="bi bi-plus-lg"></i>
+            </a>
+
+            {% if session.role == 'admin' %}
+            <a href="{{ url_for('admin_panel') }}"
+                class="bottom-nav-item {% if request.endpoint == 'admin_panel' %}active{% endif %}">
+                <i class="bi bi-shield-lock"></i>
+                <span>Admin</span>
+            </a>
+            {% else %}
+            <a href="#" class="bottom-nav-item">
+                <i class="bi bi-bell"></i>
+                <span>Activity</span>
+            </a>
+            {% endif %}
+
+            <a href="{{ url_for('profile') }}"
+                class="bottom-nav-item {% if request.endpoint in ['profile', 'view_user_profile'] %}active{% endif %}">
+                {% set current_user_obj = None %}
+                {% if session.user_id %}
+                {% set current_user_obj = get_user(session.user_id) %}
+                {% endif %}
+                <div class="bottom-nav-avatar"
+                    style="background: {% if current_user_obj %}{{ current_user_obj.avatar_color }}{% else %}linear-gradient(135deg, #667eea, #764ba2){% endif %}">
+                    {% if current_user_obj and current_user_obj.avatar_filename %}
+                    <img src="{{ url_for('avatar_file', filename=current_user_obj.avatar_filename) }}"
+                        alt="{{ session.username }}"
+                        style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">
+                    {% else %}
+                    {{ session.username[0].upper() }}
+                    {% endif %}
+                </div>
+                <span>Profile</span>
+            </a>
+        </div>
+    </nav>
+    {% endif %}
+
+    <!-- Flash Messages -->
+    <div class="container mt-3">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+    </div>
+
+    <!-- Main Content -->
+    <main class="main-container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <p>&copy; 2024 MemoryBox - A4K53 Van Lam High School</p>
+        </div>
+    </footer>
+
+    <!-- Bootstrap JS -->
+    <script defer src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    {% block extra_js %}{% endblock %}
+</body>
+
+</html>

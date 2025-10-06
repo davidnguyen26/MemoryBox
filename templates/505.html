@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}Page Not Found - MemoryBox{% endblock %}
+
+{% block content %}
+
+    <div class="landing-container">
+        <div class="hero">
+            <h1>404 - Lost in the Memory Maze!</h1>
+            <p>Uh-oh! Looks like this memory got lost in a black hole or maybe it's playing hide-and-seek! 😜 Don't worry, our class gallery is full of other awesome moments to explore!</p>
+        </div>
+        
+        <div class="cta-buttons">
+            <a href="/" class="btn-cta btn-cta-primary">
+                <i class="fas fa-rocket"></i> Escape to Home
+            </a>
+            <a href="/gallery" class="btn-cta btn-cta-secondary">
+                <i class="fas fa-camera-retro"></i> Hunt for Memories
+            </a>
+        </div>
+
+        <div class="features" style="margin-top: 40px;">
+            <div class="feature-card">
+                <div class="feature-icon">🤔</div>
+                <h3>Why did this happen?</h3>
+                <p>The page might have been moved, deleted, or maybe it’s just shy!</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🔍</div>
+                <h3>What to do next?</h3>
+                <p>Head back to the gallery or home to rediscover those epic class moments!</p>
+            </div>
+        </div>
+    </div>
+
+{% endblock %}

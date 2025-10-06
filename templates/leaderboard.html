@@ -1,0 +1,687 @@
+{% extends "base.html" %}
+
+{% block title %}Top Rankings - MemoryBox{% endblock %}
+
+{% block extra_css %}
+<style>
+    .podium-avatar,
+    .rank-avatar {
+        position: relative;
+        overflow: hidden;
+    }
+
+    .podium-avatar img,
+    .rank-avatar img {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .leaderboard-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 40px 20px;
+        position: relative;
+    }
+
+    /* Animated Background */
+    .leaderboard-container::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 100%;
+        height: 400px;
+        background: radial-gradient(ellipse at top, rgba(102, 126, 234, 0.15) 0%, transparent 70%);
+        pointer-events: none;
+        z-index: 0;
+    }
+
+    .leaderboard-header {
+        text-align: center;
+        margin-bottom: 60px;
+        position: relative;
+        z-index: 1;
+        animation: fadeInDown 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes fadeInDown {
+        from {
+            opacity: 0;
+            transform: translateY(-30px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .leaderboard-header h1 {
+        font-size: 3.5rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, #f59e0b 0%, #ef4444 50%, #ec4899 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 16px;
+        letter-spacing: -0.02em;
+        line-height: 1.1;
+    }
+
+    .leaderboard-subtitle {
+        color: #64748b;
+        font-size: 1.15rem;
+        font-weight: 500;
+    }
+
+    /* Top 3 Podium - Redesigned */
+    .podium {
+        display: flex;
+        justify-content: center;
+        align-items: flex-end;
+        gap: 24px;
+        margin-bottom: 60px;
+        padding: 0 20px;
+        position: relative;
+        z-index: 1;
+    }
+
+    .podium-item {
+        position: relative;
+        text-align: center;
+        transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        animation: scaleIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+    }
+
+    @keyframes scaleIn {
+        from {
+            opacity: 0;
+            transform: scale(0.8) translateY(20px);
+        }
+
+        to {
+            opacity: 1;
+            transform: scale(1) translateY(0);
+        }
+    }
+
+    .podium-item.rank-1 {
+        order: 2;
+        animation-delay: 0.2s;
+    }
+
+    .podium-item.rank-2 {
+        order: 1;
+        animation-delay: 0.1s;
+    }
+
+    .podium-item.rank-3 {
+        order: 3;
+        animation-delay: 0.3s;
+    }
+
+    .podium-item:hover {
+        transform: translateY(-12px) scale(1.02);
+    }
+
+    .podium-card {
+        background: rgba(255, 255, 255, 0.9);
+        backdrop-filter: blur(20px);
+        border-radius: 24px;
+        padding: 28px 24px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.8);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .podium-item.rank-1 .podium-card {
+        padding: 36px 32px;
+        background: linear-gradient(135deg, rgba(251, 191, 36, 0.15) 0%, rgba(239, 68, 68, 0.1) 100%);
+        border: 2px solid rgba(251, 191, 36, 0.3);
+        box-shadow: 0 12px 48px rgba(251, 191, 36, 0.2);
+    }
+
+    .podium-item.rank-2 .podium-card {
+        background: linear-gradient(135deg, rgba(203, 213, 225, 0.2) 0%, rgba(148, 163, 184, 0.15) 100%);
+        border: 2px solid rgba(203, 213, 225, 0.4);
+    }
+
+    .podium-item.rank-3 .podium-card {
+        background: linear-gradient(135deg, rgba(251, 146, 60, 0.15) 0%, rgba(234, 88, 12, 0.1) 100%);
+        border: 2px solid rgba(251, 146, 60, 0.3);
+    }
+
+    /* Glow effect */
+    .podium-card::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(circle, rgba(255, 255, 255, 0.3) 0%, transparent 70%);
+        opacity: 0;
+        transition: opacity 0.5s;
+    }
+
+    .podium-item:hover .podium-card::before {
+        opacity: 1;
+    }
+
+    .podium-avatar-wrapper {
+        position: relative;
+        margin: 0 auto 20px;
+        width: fit-content;
+    }
+
+    .podium-avatar {
+        width: 100px;
+        height: 100px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 2.5rem;
+        font-weight: 700;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+        position: relative;
+        transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .podium-item:hover .podium-avatar {
+        transform: scale(1.1) rotate(5deg);
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+    }
+
+    .podium-item.rank-1 .podium-avatar {
+        width: 120px;
+        height: 120px;
+        font-size: 3rem;
+        box-shadow: 0 12px 40px rgba(251, 191, 36, 0.4);
+    }
+
+    /* Crown for #1 */
+    .crown {
+        position: absolute;
+        top: -30px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 2.5rem;
+        filter: drop-shadow(0 4px 12px rgba(251, 191, 36, 0.5));
+        animation: float 3s ease-in-out infinite;
+    }
+
+    @keyframes float {
+
+        0%,
+        100% {
+            transform: translateX(-50%) translateY(0);
+        }
+
+        50% {
+            transform: translateX(-50%) translateY(-8px);
+        }
+    }
+
+    .medal-badge {
+        position: absolute;
+        bottom: -8px;
+        right: -8px;
+        font-size: 2.5rem;
+        filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.3));
+        animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+
+        0%,
+        100% {
+            transform: scale(1);
+        }
+
+        50% {
+            transform: scale(1.1);
+        }
+    }
+
+    .podium-item.rank-1 .medal-badge {
+        font-size: 3rem;
+        animation: wiggle 3s ease-in-out infinite;
+    }
+
+    @keyframes wiggle {
+
+        0%,
+        90%,
+        100% {
+            transform: rotate(0deg);
+        }
+
+        92%,
+        96% {
+            transform: rotate(15deg);
+        }
+
+        94%,
+        98% {
+            transform: rotate(-15deg);
+        }
+    }
+
+    .podium-username {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: #1e293b;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+    }
+
+    .podium-username a {
+        text-decoration: none;
+        color: inherit;
+        transition: color 0.2s;
+    }
+
+    .podium-username a:hover {
+        color: #667eea;
+    }
+
+    .podium-item.rank-1 .podium-username {
+        font-size: 1.5rem;
+        background: linear-gradient(135deg, #f59e0b, #ef4444, #ec4899);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+
+    .podium-stats {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .podium-likes {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        font-size: 1.4rem;
+        font-weight: 700;
+        color: #ef4444;
+    }
+
+    .podium-item.rank-1 .podium-likes {
+        font-size: 1.6rem;
+    }
+
+    .podium-photos {
+        font-size: 0.9rem;
+        color: #64748b;
+        font-weight: 500;
+    }
+
+    /* Rankings List - Modern Cards */
+    .rankings-list {
+        display: grid;
+        gap: 16px;
+        position: relative;
+        z-index: 1;
+    }
+
+    .rank-item {
+        background: rgba(255, 255, 255, 0.8);
+        backdrop-filter: blur(20px);
+        border-radius: 20px;
+        padding: 20px 24px;
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        border: 1px solid rgba(226, 232, 240, 0.6);
+        transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+    }
+
+    .rank-item:nth-child(1) {
+        animation-delay: 0.1s;
+    }
+
+    .rank-item:nth-child(2) {
+        animation-delay: 0.15s;
+    }
+
+    .rank-item:nth-child(3) {
+        animation-delay: 0.2s;
+    }
+
+    .rank-item:nth-child(4) {
+        animation-delay: 0.25s;
+    }
+
+    .rank-item:nth-child(5) {
+        animation-delay: 0.3s;
+    }
+
+    @keyframes fadeInUp {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .rank-item:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.1);
+        border-color: rgba(102, 126, 234, 0.3);
+        background: rgba(255, 255, 255, 0.95);
+    }
+
+    .rank-position {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, #f8fafc, #e2e8f0);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.4rem;
+        font-weight: 700;
+        color: #64748b;
+        flex-shrink: 0;
+    }
+
+    .rank-avatar {
+        width: 64px;
+        height: 64px;
+        border-radius: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 1.6rem;
+        font-weight: 700;
+        flex-shrink: 0;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+        transition: transform 0.3s;
+    }
+
+    .rank-item:hover .rank-avatar {
+        transform: scale(1.1) rotate(-5deg);
+    }
+
+    .rank-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .rank-name {
+        font-size: 1.15rem;
+        font-weight: 700;
+        color: #1e293b;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+    }
+
+    .rank-name a {
+        text-decoration: none;
+        color: inherit;
+        transition: color 0.2s;
+    }
+
+    .rank-name a:hover {
+        color: #667eea;
+    }
+
+    .rank-stats {
+        color: #64748b;
+        font-size: 0.9rem;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .rank-likes {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 1.3rem;
+        font-weight: 700;
+        color: #ef4444;
+        padding: 10px 16px;
+        background: rgba(239, 68, 68, 0.08);
+        border-radius: 12px;
+        flex-shrink: 0;
+    }
+
+    /* Empty State */
+    .empty-state {
+        text-align: center;
+        padding: 80px 20px;
+        animation: fadeIn 0.6s ease;
+    }
+
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+        }
+
+        to {
+            opacity: 1;
+        }
+    }
+
+    .empty-state i {
+        font-size: 5rem;
+        background: linear-gradient(135deg, #cbd5e1, #94a3b8);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 24px;
+        display: block;
+    }
+
+    .empty-state h3 {
+        color: #64748b;
+        font-size: 1.5rem;
+        margin-bottom: 12px;
+    }
+
+    .empty-state p {
+        color: #94a3b8;
+        font-size: 1rem;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+        .leaderboard-header h1 {
+            font-size: 2.5rem;
+        }
+
+        .podium {
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .podium-item {
+            width: 100%;
+            max-width: 340px;
+        }
+
+        .podium-item.rank-1,
+        .podium-item.rank-2,
+        .podium-item.rank-3 {
+            order: unset;
+        }
+
+        .rank-item {
+            padding: 16px 20px;
+        }
+
+        .rank-position {
+            width: 40px;
+            height: 40px;
+            font-size: 1.2rem;
+        }
+
+        .rank-avatar {
+            width: 56px;
+            height: 56px;
+            font-size: 1.4rem;
+        }
+
+        .rank-likes {
+            font-size: 1.1rem;
+            padding: 8px 12px;
+        }
+    }
+
+    @media (max-width: 576px) {
+        .leaderboard-container {
+            padding: 24px 16px;
+        }
+
+        .leaderboard-header h1 {
+            font-size: 2rem;
+        }
+
+        .podium-avatar {
+            width: 90px;
+            height: 90px;
+            font-size: 2rem;
+        }
+
+        .podium-item.rank-1 .podium-avatar {
+            width: 100px;
+            height: 100px;
+            font-size: 2.5rem;
+        }
+
+        .rank-item {
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .rank-info {
+            flex: 1 1 100%;
+            order: 3;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="leaderboard-container">
+    <div class="leaderboard-header">
+        <h1>🏆 Stars Rankings</h1>
+        <p class="leaderboard-subtitle">Top members with the most likes</p>
+    </div>
+
+    {% if top_users|length >= 3 %}
+    <div class="podium">
+        {% for user_data in top_users[:3] %}
+        {% set user = user_data[0] %}
+        {% set likes = user_data[1] %}
+        <div class="podium-item rank-{{ loop.index }}">
+            <div class="podium-card">
+                <div class="podium-avatar-wrapper">
+                    {% if loop.index == 1 %}
+                    <div class="crown">👑</div>
+                    {% endif %}
+                    <div class="podium-avatar" style="background: {{ user.avatar_color }}">
+                        {% if user.avatar_filename %}
+                        <img src="{{ url_for('avatar_file', filename=user.avatar_filename) }}" alt="{{ user.username }}"
+                            loading="lazy"
+                            style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">
+                        {% else %}
+                        {{ user.username[0].upper() }}
+                        {% endif %}
+                    </div>
+                    <span class="medal-badge">
+                        {% if loop.index == 1 %}🥇
+                        {% elif loop.index == 2 %}🥈
+                        {% else %}🥉{% endif %}
+                    </span>
+                </div>
+                <div class="podium-username">
+                    <a href="{{ url_for('view_user_profile', user_id=user.id) }}">
+                        {{ user.username }}
+                    </a>
+                    {% if user.is_verified %}
+                    <i class="fa-solid fa-circle-check" style="color: #3b82f6;"></i>
+                    {% endif %}
+                </div>
+                <div class="podium-stats">
+                    <div class="podium-likes">
+                        <i class="bi bi-heart-fill"></i>
+                        {{ likes }}
+                    </div>
+                    <div class="podium-photos">
+                        <i class="bi bi-images"></i> {{ user.photos|length }} photos
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if top_users|length > 3 %}
+    <div class="rankings-list">
+        {% for user_data in top_users[3:] %}
+        {% set user = user_data[0] %}
+        {% set likes = user_data[1] %}
+        <div class="rank-item">
+            <div class="rank-position">{{ loop.index + 3 }}</div>
+            <div class="rank-avatar" style="background: {{ user.avatar_color }}">
+                {% if user.avatar_filename %}
+                <img src="{{ url_for('avatar_file', filename=user.avatar_filename) }}" alt="{{ user.username }}"
+                    loading="lazy"
+                    style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 16px;">
+                {% else %}
+                {{ user.username[0].upper() }}
+                {% endif %}
+            </div>
+            <div class="rank-info">
+                <div class="rank-name">
+                    <a href="{{ url_for('view_user_profile', user_id=user.id) }}">
+                        {{ user.username }}
+                    </a>
+                    {% if user.is_verified %}
+                    <i class="fa-solid fa-circle-check" style="color: #3b82f6;"></i>
+                    {% endif %}
+                </div>
+                <div class="rank-stats">
+                    <i class="bi bi-images"></i> {{ user.photos|length }} photos
+                </div>
+            </div>
+            <div class="rank-likes">
+                <i class="bi bi-heart-fill"></i>
+                {{ likes }}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if not top_users or top_users|length == 0 %}
+    <div class="empty-state">
+        <i class="bi bi-trophy"></i>
+        <h3>No ranking data available</h3>
+        <p>Upload photos and receive likes to climb the leaderboard!</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
