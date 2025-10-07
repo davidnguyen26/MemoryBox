@@ -284,13 +284,26 @@ def delete_from_r2(key):
 AVATAR_SIZE = 300
 AVATAR_QUALITY = 85
 
-def process_avatar(file):
-    """Process and optimize uploaded avatar image."""
+def process_avatar(file_data):
+    """
+    Process and optimize uploaded avatar image.
+    Args:
+        file_data: BytesIO object containing image data
+    Returns:
+        BytesIO object containing processed JPEG image
+    """
     try:
-        img = Image.open(file)
+        # ✅ Reset position to start
+        file_data.seek(0)
+        
+        # Open image from BytesIO
+        img = Image.open(file_data)
+        img.load()  # Load image data into memory
+        
     except Exception as e:
         raise ValueError(f"Invalid image format: {e}")
     
+    # Convert to RGB if needed
     if img.mode in ('RGBA', 'LA', 'P'):
         background = Image.new('RGB', img.size, (255, 255, 255))
         if img.mode == 'P':
@@ -298,14 +311,17 @@ def process_avatar(file):
         background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
         img = background
     
+    # Crop to square
     width, height = img.size
     size = min(width, height)
     left = (width - size) // 2
     top = (height - size) // 2
     img = img.crop((left, top, left + size, top + size))
     
+    # Resize
     img = img.resize((AVATAR_SIZE, AVATAR_SIZE), Image.Resampling.LANCZOS)
     
+    # Save to BytesIO
     output = io.BytesIO()
     img.save(output, format='JPEG', quality=AVATAR_QUALITY, optimize=True)
     output.seek(0)
@@ -816,21 +832,20 @@ def upload_avatar(user_id):
     if not allowed_file(file.filename):
         return jsonify({'error': 'Invalid format'}), 400
 
-    # Check file size BEFORE reading
-    file.seek(0, 2)
-    size = file.tell()
-    file.seek(0)
-    
-    if size > app.config['MAX_AVATAR_SIZE']:
-        return jsonify({'error': 'File too large (max 2MB)'}), 400
-    
     try:
-        # ✅ FIX: Read file into BytesIO FIRST to avoid closed file error
-        file_data = io.BytesIO(file.read())
-        file_data.seek(0)
+        # ✅ Read file into memory ONCE
+        file_bytes = file.read()
         
-        # Process the avatar from BytesIO
+        # Check size
+        if len(file_bytes) > app.config['MAX_AVATAR_SIZE']:
+            return jsonify({'error': 'File too large (max 2MB)'}), 400
+        
+        # Create BytesIO from bytes
+        file_data = io.BytesIO(file_bytes)
+        
+        # Process the avatar
         processed_image = process_avatar(file_data)
+        
         filename = f"avatar_{user_id}_{secrets.token_hex(8)}.jpg"
         
         # Upload to R2 if enabled
@@ -861,6 +876,9 @@ def upload_avatar(user_id):
             'avatar_url': user.get_avatar_url()
         }), 200
         
+    except ValueError as ve:
+        app.logger.error(f"Avatar validation error: {str(ve)}")
+        return jsonify({'error': str(ve)}), 400
     except Exception as e:
         app.logger.error(f"Avatar upload error: {str(e)}")
         return jsonify({'error': f'Processing error: {str(e)}'}), 500
