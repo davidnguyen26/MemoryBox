@@ -2,11 +2,12 @@ import io
 import os
 import secrets
 import logging
+import atexit
 from datetime import datetime, timedelta
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_from_directory
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_from_directory, send_file
 from flask_sqlalchemy import SQLAlchemy
 from flask_caching import Cache
 from sqlalchemy import func
@@ -15,9 +16,9 @@ from PIL import Image
 from logging.handlers import RotatingFileHandler
 from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
-from flask import request
 from sqlalchemy import create_engine
 from sqlalchemy.orm import scoped_session, sessionmaker
+
 # ========== ENVIRONMENT SETUP ==========
 load_dotenv()
 
@@ -42,10 +43,15 @@ os.makedirs(app.config['AVATAR_FOLDER'], exist_ok=True)
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    "pool_pre_ping": True,          # ✅ Check connection before using
-    "pool_recycle": 280,            # ✅ Reset after 280s to avoid timeout
-    "pool_size": 5,
-    "max_overflow": 10
+    "pool_pre_ping": True,
+    "pool_recycle": 280,
+    "pool_size": 2,                 # ✅ Reduce because of limited connections
+    "max_overflow": 3,              # ✅ Reduce overflow
+    "pool_timeout": 30,
+    "connect_args": {
+        "connect_timeout": 10,
+        "options": "-c statement_timeout=30000"
+    }
 }
 
 
@@ -433,6 +439,7 @@ def get_current_user():
         return None
     try:
         return User.query.get(session['user_id'])
+        db.session.expunge_all()
     except Exception:
         db.session.rollback()  # ✅ rollback if db connection is lost
         app.logger.error(f"⚠️ DB reconnect: {e}")
@@ -553,37 +560,68 @@ def gallery():
     }
     return render_template('gallery.html', **data)
 
+@app.route('/gallery/photo/<int:photo_id>')
+@login_required
+def gallery_photo(photo_id):
+    photo = Photo.query.get_or_404(photo_id)
+    all_photos = Photo.query.order_by(Photo.upload_time.desc()).all()
+    
+    try:
+        photo_index = next(i for i, p in enumerate(all_photos) if p.id == photo_id)
+    except StopIteration:
+        photo_index = 0
+    
+    page = 1
+    per_page = 50
+    pagination = Photo.query.options(
+        db.joinedload(Photo.uploader),
+        db.joinedload(Photo.likes),
+        db.joinedload(Photo.comments)
+    ).order_by(Photo.upload_time.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    
+    data = {
+        'photos': pagination.items,
+        'photos_json': [p.to_dict() for p in pagination.items],
+        'current_user': User.query.get(session['user_id']),
+        'pagination': pagination,
+        'open_photo_index': photo_index
+    }
+    return render_template('gallery.html', **data)
 # ========== IMAGE PROCESSING ==========
-executor = ThreadPoolExecutor(max_workers=2)
+executor = ThreadPoolExecutor(max_workers=3)
 
 def optimize_image(filepath: str, filename: str, photo_id: int) -> None:
-    """Background task: optimize and upload to R2"""
     try:
-        img = Image.open(filepath)
+        if not os.path.exists(filepath):
+            app.logger.warning(f"⚠️ File not found: {filepath}")
+            return
         
-        # Resize if too large
+        with open(filepath, 'rb') as f:
+            img = Image.open(f)
+            img.load()  # ⭐ QUAN TRỌNG
+        
         if img.width > 1920 or img.height > 1920:
             img.thumbnail((1920, 1920), Image.Resampling.LANCZOS)
         
-        # Save optimized version
         output = io.BytesIO()
         img.save(output, format='JPEG', quality=90, optimize=True)
         output.seek(0)
         
-        # Upload to R2 if enabled
         if R2_ENABLED:
             upload_to_r2(output, f'photos/{filename}')
             
-            # Generate and upload thumbnail
             output.seek(0)
             img_thumb = Image.open(output)
+            img_thumb.load()
             img_thumb.thumbnail((300, 300), Image.Resampling.LANCZOS)
+            
             thumb_output = io.BytesIO()
             img_thumb.save(thumb_output, format='JPEG', quality=85, optimize=True)
             thumb_output.seek(0)
             upload_to_r2(thumb_output, f'photos/thumb_{filename}')
         
         app.logger.info(f"✅ Optimized photo {photo_id}")
+        
     except Exception as e:
         app.logger.error(f"❌ Error processing photo {photo_id}: {e}")
 
@@ -617,7 +655,15 @@ def upload():
             db.session.commit()
 
             # Process in background
-            executor.submit(optimize_image, filepath, filename, photo.id)
+            try:
+                if executor._shutdown:
+                    app.logger.warning("⚠️ Executor shut down, processing synchronously")
+                    optimize_image(filepath, filename, photo.id)
+                else:
+                    executor.submit(optimize_image, filepath, filename, photo.id)
+            except Exception as e:
+                app.logger.error(f"❌ Executor error: {e}")
+                optimize_image(filepath, filename, photo.id)
 
             flash('Photo uploaded successfully!', 'success')
             return redirect(url_for('gallery'))
@@ -630,8 +676,54 @@ def upload():
 def shutdown_session(exception=None):
     try:
         db.session.remove()
+    except Exception as e:
+        app.logger.error(f"Error closing session: {e}")
+
+@app.after_request
+def after_request(response):
+    try:
+        db.session.commit()
     except Exception:
-        pass
+        db.session.rollback()
+    finally:
+        db.session.remove()
+    return response
+
+@app.route('/download/<int:photo_id>')
+@login_required
+def download_photo(photo_id):
+    photo = Photo.query.get_or_404(photo_id)
+    filename = photo.filename
+
+    if R2_ENABLED:
+        file_url = f"{R2_PUBLIC_URL}/photos/{filename}"
+        
+        try:
+            r = requests.get(file_url, stream=True, timeout=30)
+            if r.status_code != 200:
+                app.logger.error(f"R2 fetch failed: {r.status_code}")
+                flash('Unable to download photo', 'danger')
+                return redirect(url_for('gallery'))
+            
+            file_data = io.BytesIO(r.content)
+            
+            return send_file(
+                file_data,
+                mimetype='image/jpeg',
+                as_attachment=True,
+                download_name=filename
+            )
+        except Exception as e:
+            app.logger.error(f"Download error: {e}")
+            flash('Download failed', 'danger')
+            return redirect(url_for('gallery'))
+    else:
+        local_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        if not os.path.exists(local_path):
+            flash('File not found', 'danger')
+            return redirect(url_for('gallery'))
+        
+        return send_file(local_path, as_attachment=True, download_name=filename)
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
@@ -986,21 +1078,15 @@ def forbidden(e):
     flash('Permission denied', 'danger')
     return redirect(url_for('gallery'))
 
-@app.route('/test_r2')
-def test_r2():
-    if not s3_client:
-        return "R2 not configured", 500
+@atexit.register
+def shutdown_executor():
     try:
-        test_key = "test_r2_connection.txt"
-        s3_client.put_object(
-            Bucket=R2_BUCKET,
-            Key=test_key,
-            Body=b"Hello R2 from Render!",
-            ContentType="text/plain"
-        )
-        return f"✅ Successfully uploaded {test_key} to R2 bucket '{R2_BUCKET}'"
+        app.logger.info("🛑 Shutting down executor...")
+        executor.shutdown(wait=True, cancel_futures=False)
+        app.logger.info("✅ Executor shutdown cleanly")
     except Exception as e:
-        return f"❌ Upload test failed: {e}", 500
+        app.logger.warning(f"⚠️ Executor shutdown error: {e}")
+
 
 # ========== HEALTH CHECK ==========
 @app.route('/health')
