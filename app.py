@@ -957,6 +957,14 @@ def forbidden(e):
     flash('Permission denied', 'danger')
     return redirect(url_for('gallery'))
 
+# thêm vào cuối app.py, chỉ để debug, sau đó xóa ngay nhé
+@app.route("/init-db")
+def init_db():
+    from app import db
+    db.create_all()
+    return "Database initialized!"
+
+
 # ========== HEALTH CHECK ==========
 @app.route('/health')
 def health_check():
@@ -975,3 +983,5 @@ if __name__ == '__main__':
         host=os.getenv('FLASK_HOST', '0.0.0.0'),
         port=int(os.getenv('FLASK_PORT', 5000))
     )
+    
+    
