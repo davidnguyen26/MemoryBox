@@ -237,11 +237,7 @@
         history.pushState({ photoIndex: currentPhotoIndex }, '', `/gallery/photo/${photo.id}`);
     }
 
-    if (photo.uploader.avatar_url) {
-        avatar.innerHTML = `<img src="${photo.uploader.avatar_url}" alt="${photo.uploader.username}" loading="lazy">`;
-    } else {
-        avatar.textContent = photo.uploader.username[0].toUpperCase();
-    }
+    function updateLightbox() {
         const photo = photos[currentPhotoIndex];
         document.getElementById('lightboxImage').src = `/uploads/${photo.filename}`;
 
