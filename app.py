@@ -21,6 +21,10 @@ from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import scoped_session, sessionmaker
+from sqlalchemy import event, exc
+from sqlalchemy.pool import Pool
+import time
+
 
 # ========== ENVIRONMENT SETUP ==========
 load_dotenv()
@@ -46,19 +50,61 @@ os.makedirs(app.config['AVATAR_FOLDER'], exist_ok=True)
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    "pool_pre_ping": True,
-    "pool_recycle": 280,
-    "pool_size": 2,                 # ✅ Reduce because of limited connections
-    "max_overflow": 3,              # ✅ Reduce overflow
-    "pool_timeout": 30,
+    "pool_pre_ping": True,              # Test connection before use
+    "pool_recycle": 280,                # Recycle after 280s (< 5 minutes)
+    "pool_size": 1,                     # ⚠️ Just 1 connection for free tier
+    "max_overflow": 0,                  # ⚠️ NO overflow
+    "pool_timeout": 10,                 # Quick timeout
     "connect_args": {
-        "connect_timeout": 10,
-        "options": "-c statement_timeout=30000"
+        "connect_timeout": 5,           # ⚠️ Reduced from 10s → 5s
+        "keepalives": 1,
+        "keepalives_idle": 30,
+        "keepalives_interval": 10,
+        "keepalives_count": 5,
+        "application_name": "memorybox_web",
+        "options": "-c statement_timeout=10000"  # 10s query timeout
     }
 }
 
 
 db = SQLAlchemy(app)
+@event.listens_for(Pool, "connect")
+def receive_connect(dbapi_conn, connection_record):
+    """Optimize connection on creation"""
+    connection_record.info['pid'] = os.getpid()
+
+@event.listens_for(Pool, "checkout")
+def receive_checkout(dbapi_conn, connection_record, connection_proxy):
+    """Verify connection trước khi dùng"""
+    pid = os.getpid()
+    if connection_record.info['pid'] != pid:
+        connection_record.dbapi_connection = connection_proxy.dbapi_connection = None
+        raise exc.DisconnectionError(
+            "Connection record belongs to pid %s, attempting to check out in pid %s" %
+            (connection_record.info['pid'], pid)
+        )
+
+def db_retry_on_failure(func):
+    """Decorator để retry database operations"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        max_retries = 3
+        retry_delay = 0.5
+        
+        for attempt in range(max_retries):
+            try:
+                return func(*args, **kwargs)
+            except exc.OperationalError as e:
+                if attempt == max_retries - 1:
+                    raise
+                app.logger.warning(f"DB connection failed (attempt {attempt + 1}/{max_retries}), retrying...")
+                db.session.rollback()
+                db.session.remove()
+                time.sleep(retry_delay * (attempt + 1))
+            except Exception as e:
+                db.session.rollback()
+                raise
+    return wrapper
 cache = Cache(app, config={'CACHE_TYPE': 'simple'})
 
 # ========== CLOUDFLARE R2 SETUP (Optional - for persistent storage) ==========
@@ -564,22 +610,36 @@ def logout():
 
 @app.route('/gallery')
 @login_required
+@db_retry_on_failure
 def gallery():
     page = request.args.get('page', 1, type=int)
     per_page = 50
-    pagination = Photo.query.options(
-        db.joinedload(Photo.uploader),
-        db.joinedload(Photo.likes),
-        db.joinedload(Photo.comments)
-    ).order_by(Photo.upload_time.desc()).paginate(page=page, per_page=per_page, error_out=False)
     
-    data = {
-        'photos': pagination.items,
-        'photos_json': [p.to_dict() for p in pagination.items],
-        'current_user': User.query.get(session['user_id']),
-        'pagination': pagination
-    }
-    return render_template('gallery.html', **data)
+    try:
+        pagination = Photo.query.options(
+            db.joinedload(Photo.uploader).load_only(
+                User.id, User.username, User.avatar_color, 
+                User.avatar_filename, User.is_verified
+            ),
+            db.selectinload(Photo.likes),
+            db.selectinload(Photo.comments).load_only(Comment.id)
+        ).order_by(Photo.upload_time.desc()).paginate(
+            page=page, per_page=per_page, error_out=False
+        )
+        
+        data = {
+            'photos': pagination.items,
+            'photos_json': [p.to_dict() for p in pagination.items],
+            'current_user': User.query.get(session['user_id']),
+            'pagination': pagination
+        }
+        
+        return render_template('gallery.html', **data)
+    except exc.OperationalError as e:
+        app.logger.error(f"Gallery query failed: {e}")
+        flash('Database connection issue. Please try again.', 'warning')
+        return render_template('gallery.html', photos=[], photos_json=[], 
+                             current_user=None, pagination=None)
 
 @app.route('/gallery/photo/<int:photo_id>')
 @login_required
@@ -695,20 +755,22 @@ def upload():
 
 @app.teardown_appcontext
 def shutdown_session(exception=None):
+    """Cleanup session sau mỗi request"""
     try:
+        if exception:
+            db.session.rollback()
         db.session.remove()
     except Exception as e:
-        app.logger.error(f"Error closing session: {e}")
+        app.logger.error(f"Session cleanup error: {e}")
 
-@app.after_request
-def after_request(response):
+@app.before_request
+def before_request():
+    """Ensure fresh session each request"""
     try:
-        db.session.commit()
-    except Exception:
+        db.session.execute(db.text('SELECT 1'))
+    except exc.OperationalError:
         db.session.rollback()
-    finally:
         db.session.remove()
-    return response
 
 @app.route('/download/<int:photo_id>')
 @login_required
@@ -1124,13 +1186,32 @@ def shutdown_executor():
 # ========== HEALTH CHECK ==========
 @app.route('/health')
 def health_check():
-    """Health check endpoint for monitoring"""
+    """Enhanced health check with retry"""
     try:
-        # Test DB connection
-        db.session.execute(db.text('SELECT 1'))
-        return jsonify({'status': 'healthy', 'database': 'connected'}), 200
+        # Quick health check - không query phức tạp
+        with db.engine.connect() as conn:
+            conn.execute(db.text('SELECT 1'))
+            conn.commit()
+        
+        return jsonify({
+            'status': 'healthy',
+            'database': 'connected',
+            'timestamp': datetime.utcnow().isoformat()
+        }), 200
+    except exc.OperationalError as e:
+        app.logger.error(f"Health check failed: {e}")
+        return jsonify({
+            'status': 'unhealthy',
+            'database': 'disconnected',
+            'error': 'Connection timeout',
+            'timestamp': datetime.utcnow().isoformat()
+        }), 503
     except Exception as e:
-        return jsonify({'status': 'unhealthy', 'error': str(e)}), 500
+        app.logger.error(f"Health check error: {e}")
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        }), 500
 
 # ========== MAIN ==========
 if __name__ == '__main__':

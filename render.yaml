@@ -1,0 +1,69 @@
+services:
+  - type: web
+    name: memorybox
+    runtime: python
+    region: singapore  # Gần Hanoi nhất
+    plan: free
+    
+    # Build Command
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    
+    # Start Command - Sử dụng gunicorn_config.py
+    startCommand: gunicorn -c gunicorn_config.py app:app
+    
+    # Health Check
+    healthCheckPath: /health
+    
+    # Auto Deploy từ GitHub
+    autoDeploy: true
+    
+    # Environment Variables
+    envVars:
+      # Python version
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      
+      # Flask settings
+      - key: FLASK_ENV
+        value: production
+      
+      - key: FLASK_DEBUG
+        value: False
+      
+      - key: FLASK_HOST
+        value: 0.0.0.0
+      
+      - key: FLASK_PORT
+        value: 5000
+      
+      # Flask Secret Key - Auto generate hoặc set manual
+      - key: FLASK_SECRET_KEY
+        sync: false  # Set manual từ .env.example hoặc generate mới
+      
+      # ⚠️ QUAN TRỌNG: Database URL từ Supabase
+      # PHẢI dùng port 6543 (Transaction Pooler)
+      - key: DATABASE_URL
+        sync: false  # Bắt buộc phải set manual
+      
+      # Cloudflare R2 Storage
+      - key: R2_ACCOUNT_ID
+        sync: false
+      
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      
+      - key: R2_BUCKET
+        sync: false
+      
+      - key: R2_PUBLIC_URL
+        sync: false
+      
+      # Optional: Supabase direct access (nếu cần)
+      - key: SUPABASE_URL
+        sync: false
+      
+      - key: SUPABASE_KEY
+        sync: false
