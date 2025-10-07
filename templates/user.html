@@ -1,7 +1,8 @@
 {% extends "base.html" %}
 
 {% block og_title %}{{ user.username }} - MemoryBox{% endblock %}
-{% block og_description %}View {{ user.username }}'s profile and photos on MemoryBox, the A4K53 Van Lam High School memory hub.{% endblock %}
+{% block og_description %}View {{ user.username }}'s profile and photos on MemoryBox, the A4K53 Van Lam High School
+memory hub.{% endblock %}
 {% block og_url %}/user/{{ user.username }}{% endblock %}
 {% block twitter_title %}{{ user.username }} - MemoryBox{% endblock %}
 {% block twitter_description %}{{ user.username }}'s profile on MemoryBox A4K53.{% endblock %}
@@ -182,14 +183,10 @@
                     <div class="photo-card" onclick="openLightbox({{ loop.index0 }}, 'photos')">
                         <div class="photo-image-wrapper">
                             <img src="{{ url_for('uploaded_file', filename=photo.filename|replace('.jpg', '_thumb.jpg')) }}"
-                            data-full="{{ url_for('uploaded_file', filename=photo.filename) }}"
-                            srcset="{{ url_for('uploaded_file', filename=photo.filename|replace('.jpg', '_thumb.jpg')) }} 300w,
+                                data-full="{{ url_for('uploaded_file', filename=photo.filename) }}" srcset="{{ url_for('uploaded_file', filename=photo.filename|replace('.jpg', '_thumb.jpg')) }} 300w,
                                  {{ url_for('uploaded_file', filename=photo.filename) }} 1920w"
-                            sizes="(max-width: 768px) 100vw, 33vw"
-                            alt="{{ photo.caption or 'Photo' }}"
-                            class="photo-image"
-                            loading="lazy"
-                            decoding="async">
+                                sizes="(max-width: 768px) 100vw, 33vw" alt="{{ photo.caption or 'Photo' }}"
+                                class="photo-image" loading="lazy" decoding="async">
                         </div>
 
                         <div class="photo-overlay">
@@ -216,11 +213,9 @@
                                 </div>
 
                                 <div class="photo-quick-actions" onclick="event.stopPropagation()">
-                                    <button class="quick-action-btn" title="Download">
-                                        <a href="{{ url_for('uploaded_file', filename=photo.filename) }}" download
-                                            style="color: inherit; text-decoration: none;">
-                                            <i class="bi bi-download"></i>
-                                        </a>
+                                    <button class="quick-action-btn" title="Download"
+                                        onclick="downloadPhoto({{ photo.id }})">
+                                        <i class="bi bi-download"></i>
                                     </button>
                                 </div>
                             </div>
@@ -260,11 +255,11 @@
                     {% endif %}
                 </div>
                 {% endif %}
-                
+
             </div>
         </div>
     </div>
-    
+
 </div>
 
 <!-- Edit Profile Modal -->
