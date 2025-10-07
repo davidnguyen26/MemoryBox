@@ -251,6 +251,7 @@ class Photo(db.Model):
                 'username': self.uploader.username,
                 'avatar_color': self.uploader.avatar_color,
                 'avatar_url': self.uploader.get_avatar_url(),
+                'avatar_filename': self.uploader.avatar_filename,
                 'is_verified': self.uploader.is_verified
             }
         }
