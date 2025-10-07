@@ -61,7 +61,7 @@ if R2_ENABLED:
     
     s3_client = boto3.client(
         's3',
-        endpoint_url=f'https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com',
+        endpoint_url=f'https://9669ffc3dad563cb890c4a8a7e361bc5.r2.cloudflarestorage.com',
         aws_access_key_id=os.getenv('R2_ACCESS_KEY_ID'),
         aws_secret_access_key=os.getenv('R2_SECRET_ACCESS_KEY'),
         config=Config(signature_version='s3v4'),
@@ -956,6 +956,16 @@ def internal_server_error(e):
 def forbidden(e):
     flash('Permission denied', 'danger')
     return redirect(url_for('gallery'))
+
+@app.route('/test_r2')
+def test_r2():
+    if not s3_client:
+        return "R2 not configured", 500
+    try:
+        response = s3_client.list_buckets()
+        return jsonify(response)
+    except Exception as e:
+        return f"R2 error: {e}", 500
 
 # ========== HEALTH CHECK ==========
 @app.route('/health')
