@@ -1,11 +1,26 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}MemoryBox{% endblock %}</title>
-
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="MemoryBox - Save memorable moments and preserve the memories of class A4K53 Van Lam High School. Share photos, interact, and keep those unforgettable moments alive.">
+    <meta name="keywords" content="MemoryBox, class memories, photo sharing, A4K53, Van Lam High School, nostalgia, photo gallery">
+    <meta name="author" content="MemoryBox Team">
+    <!-- Open Graph for Social Media -->
+    <meta property="og:title" content="{% block og_title %}MemoryBox{% endblock %}">
+    <meta property="og:description" content="{% block og_description %}MemoryBox - Save memorable moments and preserve the memories of class A4K53 Van Lam High School. Share photos, interact, and keep those unforgettable moments alive.{% endblock %}">
+    <meta property="og:image" content="https://memorybox-wnqu.onrender.com/static/images/logo.png">
+    <meta property="og:url" content="https://memorybox-wnqu.onrender.com{% block og_url %}{% endblock %}">
+    <meta property="og:type" content="website">
+    <!-- Twitter Cards -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{% block twitter_title %}MemoryBox{% endblock %}">
+    <meta name="twitter:description" content="{% block twitter_description %}MemoryBox - Save memorable moments and preserve the memories of class A4K53 Van Lam High School. Share photos, interact, and keep those unforgettable moments alive.{% endblock %}">
+    <meta name="twitter:image" content="https://memorybox-wnqu.onrender.com/static/images/logo.png">
+    <title>{% block title %}{% endblock %}</title>
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Bootstrap Icons -->

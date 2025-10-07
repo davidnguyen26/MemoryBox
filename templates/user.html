@@ -1,5 +1,12 @@
 {% extends "base.html" %}
 
+{% block og_title %}{{ user.username }} - MemoryBox{% endblock %}
+{% block og_description %}View {{ user.username }}'s profile and photos on MemoryBox, the A4K53 Van Lam High School memory hub.{% endblock %}
+{% block og_url %}/user/{{ user.username }}{% endblock %}
+{% block twitter_title %}{{ user.username }} - MemoryBox{% endblock %}
+{% block twitter_description %}{{ user.username }}'s profile on MemoryBox A4K53.{% endblock %}
+{% block canonical_url %}/user/{{ user.username }}{% endblock %}
+
 {% block title %}{{ user.username }} - MemoryBox{% endblock %}
 
 {% block extra_css %}
