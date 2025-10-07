@@ -957,23 +957,6 @@ def forbidden(e):
     flash('Permission denied', 'danger')
     return redirect(url_for('gallery'))
 
-@app.route("/init-admin")
-def init_admin():
-    from werkzeug.security import generate_password_hash
-    if not User.query.filter_by(username="admin").first():
-        admin = User(
-            username="admin",
-            email="admin@memorybox.com",
-            password_hash=generate_password_hash("admin123"),
-            role="admin",
-            is_verified=True
-        )
-        db.session.add(admin)
-        db.session.commit()
-        return "✅ Admin user created (admin / admin123)"
-    return "ℹ️ Admin already exists."
-
-
 # ========== HEALTH CHECK ==========
 @app.route('/health')
 def health_check():
