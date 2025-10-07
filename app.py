@@ -435,6 +435,7 @@ def get_current_user():
         return User.query.get(session['user_id'])
     except Exception:
         db.session.rollback()  # ✅ rollback if db connection is lost
+        app.logger.error(f"⚠️ DB reconnect: {e}")
         return None
 
 app.jinja_env.globals.update(
@@ -631,9 +632,13 @@ def shutdown_executor(exception=None):
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
+    """Serve uploaded photo — redirect to R2 if available."""
     if R2_ENABLED:
-        return redirect(f"{R2_PUBLIC_URL}/photos/{filename}")
+        return redirect(f"{R2_PUBLIC_URL}/photos/{filename}", code=302)
+    local_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     """Serve local files (fallback if R2 not enabled)"""
+    if not os.path.exists(local_path):
+        return jsonify({'error': 'File not found'}), 404
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 @app.route('/photo/<int:photo_id>/delete', methods=['POST'])
@@ -687,6 +692,12 @@ def profile():
 
 @app.route('/avatars/<filename>')
 def avatar_file(filename):
+    """Serve user avatars — redirect to R2 if available."""
+    if R2_ENABLED:
+        return redirect(f"{R2_PUBLIC_URL}/avatars/{filename}", code=302)
+    local_path = os.path.join(app.config['AVATAR_FOLDER'], filename)
+    if not os.path.exists(local_path):
+        return jsonify({'error': 'Avatar not found'}), 404
     return send_from_directory(app.config['AVATAR_FOLDER'], filename)
 
 @app.route('/user/<int:user_id>/upload-avatar', methods=['POST'])
