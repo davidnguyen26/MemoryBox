@@ -3,11 +3,12 @@ import os
 import secrets
 import logging
 import atexit
+import requests
 from datetime import datetime, timedelta
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_from_directory, send_file
+from flask import Flask, render_template, redirect, url_for, flash, session, jsonify, send_from_directory, send_file
 from flask_sqlalchemy import SQLAlchemy
 from flask_caching import Cache
 from sqlalchemy import func
@@ -718,6 +719,7 @@ def download_photo(photo_id):
             flash('Download failed', 'danger')
             return redirect(url_for('gallery'))
     else:
+        # Local storage fallback
         local_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         if not os.path.exists(local_path):
             flash('File not found', 'danger')
@@ -812,6 +814,7 @@ def upload_avatar(user_id):
     if not allowed_file(file.filename):
         return jsonify({'error': 'Invalid format'}), 400
 
+    # Check file size BEFORE reading
     file.seek(0, 2)
     size = file.tell()
     file.seek(0)
@@ -820,11 +823,17 @@ def upload_avatar(user_id):
         return jsonify({'error': 'File too large (max 2MB)'}), 400
     
     try:
-        processed_image = process_avatar(file)
+        # ✅ FIX: Read file into BytesIO FIRST to avoid closed file error
+        file_data = io.BytesIO(file.read())
+        file_data.seek(0)
+        
+        # Process the avatar from BytesIO
+        processed_image = process_avatar(file_data)
         filename = f"avatar_{user_id}_{secrets.token_hex(8)}.jpg"
         
         # Upload to R2 if enabled
         if R2_ENABLED:
+            processed_image.seek(0)
             upload_to_r2(processed_image, f'avatars/{filename}')
         
         # Save local copy
@@ -851,6 +860,7 @@ def upload_avatar(user_id):
         }), 200
         
     except Exception as e:
+        app.logger.error(f"Avatar upload error: {str(e)}")
         return jsonify({'error': f'Processing error: {str(e)}'}), 500
 
 @app.route('/user/<int:user_id>/delete-avatar', methods=['DELETE'])
