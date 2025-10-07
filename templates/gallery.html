@@ -61,11 +61,8 @@
                     </div>
 
                     <div class="photo-quick-actions" onclick="event.stopPropagation()">
-                        <button class="quick-action-btn" title="Download">
-                            <a href="{{ url_for('uploaded_file', filename=photo.filename) }}" download
-                                style="color: inherit; text-decoration: none;">
-                                <i class="bi bi-download"></i>
-                            </a>
+                    <button class="quick-action-btn" title="Download" onclick="downloadPhoto({{ photo.id }})">
+                            <i class="bi bi-download"></i>
                         </button>
                     </div>
                 </div>
@@ -549,5 +546,8 @@
             }
         }
     });
+    function downloadPhoto(photoId) {
+        window.location.href = `/download/${photoId}`;
+    }
 </script>
 {% endblock %}
