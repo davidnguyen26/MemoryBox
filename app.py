@@ -627,8 +627,11 @@ def upload():
     return render_template('upload.html')
 
 @app.teardown_appcontext
-def shutdown_executor(exception=None):
-    executor.shutdown(wait=False)
+def shutdown_session(exception=None):
+    try:
+        db.session.remove()
+    except Exception:
+        pass
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
