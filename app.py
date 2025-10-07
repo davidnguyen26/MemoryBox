@@ -16,7 +16,8 @@ from logging.handlers import RotatingFileHandler
 from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
 from flask import request
-
+from sqlalchemy import create_engine
+from sqlalchemy.orm import scoped_session, sessionmaker
 # ========== ENVIRONMENT SETUP ==========
 load_dotenv()
 
@@ -39,6 +40,14 @@ app.config['MAX_AVATAR_SIZE'] = 2 * 1024 * 1024  # 2MB
 # Create folders (important for ephemeral filesystem)
 os.makedirs(app.config['AVATAR_FOLDER'], exist_ok=True)
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    "pool_pre_ping": True,          # ✅ Check connection before using
+    "pool_recycle": 280,            # ✅ Reset after 280s to avoid timeout
+    "pool_size": 5,
+    "max_overflow": 10
+}
+
 
 db = SQLAlchemy(app)
 cache = Cache(app, config={'CACHE_TYPE': 'simple'})
@@ -420,9 +429,13 @@ def get_carousel_badges(user, photo_count):
     return badges
 
 def get_current_user():
-    if 'user_id' in session:
+    if 'user_id' not in session:
+        return None
+    try:
         return User.query.get(session['user_id'])
-    return None
+    except Exception:
+        db.session.rollback()  # ✅ rollback if db connection is lost
+        return None
 
 app.jinja_env.globals.update(
     time_ago=time_ago, 
@@ -618,6 +631,8 @@ def shutdown_executor(exception=None):
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
+    if R2_ENABLED:
+        return redirect(f"{R2_PUBLIC_URL}/photos/{filename}")
     """Serve local files (fallback if R2 not enabled)"""
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
