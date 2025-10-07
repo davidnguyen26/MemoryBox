@@ -18,29 +18,61 @@ from dotenv import load_dotenv
 from flask import request
 
 # ========== ENVIRONMENT SETUP ==========
-# Loading environment variables from .env file
 load_dotenv()
 
 # ========== FLASK APP INITIALIZATION ==========
-# Initialize Flask application with configuration
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', secrets.token_hex(32))
-app.config['SQLALCHEMY_DATABASE_URI'] = (
+
+# PRODUCTION: Use DATABASE_URL from environment (Supabase/Render auto-inject)
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv(
+    'DATABASE_URL',
     "postgresql+psycopg2://postgres:admin123@localhost/memorybox"
 )
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB limit
+app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif'}
 app.config['AVATAR_FOLDER'] = 'avatars'
 app.config['MAX_AVATAR_SIZE'] = 2 * 1024 * 1024  # 2MB
+
+# Create folders (important for ephemeral filesystem)
 os.makedirs(app.config['AVATAR_FOLDER'], exist_ok=True)
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
 db = SQLAlchemy(app)
 cache = Cache(app, config={'CACHE_TYPE': 'simple'})
 
+# ========== CLOUDFLARE R2 SETUP (Optional - for persistent storage) ==========
+R2_ENABLED = all([
+    os.getenv('R2_ACCOUNT_ID'),
+    os.getenv('R2_ACCESS_KEY_ID'),
+    os.getenv('R2_SECRET_ACCESS_KEY'),
+    os.getenv('R2_BUCKET')
+])
+
+if R2_ENABLED:
+    import boto3
+    from botocore.config import Config
+    
+    R2_ACCOUNT_ID = os.getenv('R2_ACCOUNT_ID')
+    R2_BUCKET = os.getenv('R2_BUCKET')
+    R2_PUBLIC_URL = os.getenv('R2_PUBLIC_URL', f'https://{R2_BUCKET}.r2.dev')
+    
+    s3_client = boto3.client(
+        's3',
+        endpoint_url=f'https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com',
+        aws_access_key_id=os.getenv('R2_ACCESS_KEY_ID'),
+        aws_secret_access_key=os.getenv('R2_SECRET_ACCESS_KEY'),
+        config=Config(signature_version='s3v4'),
+        region_name='auto'
+    )
+    app.logger.info("✅ Cloudflare R2 storage enabled")
+else:
+    s3_client = None
+    app.logger.warning("⚠️ Cloudflare R2 not configured, using local storage")
+
 # ========== DATABASE MODELS ==========
-# Database model definitions for User, Photo, Like, and Comment
 class User(db.Model):
     """User model for authentication and user management"""
     id = db.Column(db.Integer, primary_key=True)
@@ -61,6 +93,8 @@ class User(db.Model):
 
     def get_avatar_url(self):
         if self.avatar_filename:
+            if R2_ENABLED:
+                return f"{R2_PUBLIC_URL}/avatars/{self.avatar_filename}"
             return url_for('avatar_file', filename=self.avatar_filename)
         return None
     
@@ -71,15 +105,12 @@ class User(db.Model):
         return check_password_hash(self.password_hash, password)
     
     def get_total_likes(self):
-        """Total likes on all user photos"""
         return db.session.query(func.count(Like.id)).join(Photo).filter(Photo.user_id == self.id).scalar()
     
     def get_comment_count(self):
         return len(self.comments)
 
     def get_rank_badge(self):
-        """Return badge based on rank"""
-        # Lấy top users theo likes
         users_by_likes = db.session.query(
             User.id,
             func.count(Like.id).label('total_likes')
@@ -96,7 +127,6 @@ class User(db.Model):
         return None
     
     def is_top_creator(self):
-        """Check user is top creator (most photos)"""
         max_photos = db.session.query(func.count(Photo.id)).group_by(Photo.user_id).order_by(func.count(Photo.id).desc()).first()
         if max_photos:
             user_photos = len(self.photos)
@@ -104,7 +134,6 @@ class User(db.Model):
         return False
     
     def is_most_liked(self):
-        """Check user is most liked"""
         max_likes = db.session.query(func.count(Like.id)).join(Photo).group_by(Photo.user_id).order_by(func.count(Like.id).desc()).first()
         if max_likes:
             user_likes = self.get_total_likes()
@@ -125,7 +154,7 @@ class Photo(db.Model):
     __table_args__ = (
         db.Index('idx_photo_upload_time', 'upload_time'),
         db.Index('idx_photo_user_id', 'user_id'),
-        db.Index('idx_photo_user_time', 'user_id', 'upload_time'),  # Add this
+        db.Index('idx_photo_user_time', 'user_id', 'upload_time'),
     )
     
     def get_like_count(self):
@@ -137,10 +166,17 @@ class Photo(db.Model):
     def get_comment_count(self):
         return len(self.comments)
     
+    def get_photo_url(self):
+        """Get photo URL (R2 or local)"""
+        if R2_ENABLED:
+            return f"{R2_PUBLIC_URL}/photos/{self.filename}"
+        return url_for('uploaded_file', filename=self.filename)
+    
     def to_dict(self):
         return {
             'id': self.id,
             'filename': self.filename,
+            'photo_url': self.get_photo_url(),
             'caption': self.caption,
             'user_id': self.user_id,
             'upload_time': self.upload_time.replace(microsecond=0).isoformat() + "Z",
@@ -150,7 +186,7 @@ class Photo(db.Model):
                 'id': self.uploader.id,
                 'username': self.uploader.username,
                 'avatar_color': self.uploader.avatar_color,
-                'avatar_filename': self.uploader.avatar_filename, 
+                'avatar_url': self.uploader.get_avatar_url(),
                 'is_verified': self.uploader.is_verified
             }
         }
@@ -189,43 +225,54 @@ class Comment(db.Model):
                 'id': self.user.id,
                 'username': self.user.username,
                 'avatar_color': self.user.avatar_color,
-                'avatar_filename': self.user.avatar_filename,
+                'avatar_url': self.user.get_avatar_url(),
                 'is_verified': self.user.is_verified
             }
         }
-    
 
 # ========== HELPER FUNCTIONS ==========
-# Utility functions for file handling, authentication, and UI rendering
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
-# Constants for avatar processing
-from typing import BinaryIO, IO
-
-AVATAR_SIZE = 300  # pixels
-AVATAR_QUALITY = 85  # JPEG quality
-AVATAR_MAX_SIZE_BYTES = 2 * 1024 * 1024  # 2MB
-
-def process_avatar(file: BinaryIO) -> IO[bytes]:
-    """
-    Process and optimize uploaded avatar image.
+def upload_to_r2(file_obj, key):
+    """Upload file to Cloudflare R2"""
+    if not R2_ENABLED:
+        return False
     
-    Args:
-        file: Uploaded file object
-        
-    Returns:
-        BytesIO object containing optimized JPEG
-        
-    Raises:
-        ValueError: If image format is unsupported
-    """
+    try:
+        s3_client.upload_fileobj(
+            file_obj,
+            R2_BUCKET,
+            key,
+            ExtraArgs={'ContentType': 'image/jpeg'}
+        )
+        return True
+    except Exception as e:
+        app.logger.error(f"R2 upload failed: {e}")
+        return False
+
+def delete_from_r2(key):
+    """Delete file from R2"""
+    if not R2_ENABLED:
+        return False
+    
+    try:
+        s3_client.delete_object(Bucket=R2_BUCKET, Key=key)
+        return True
+    except Exception as e:
+        app.logger.error(f"R2 delete failed: {e}")
+        return False
+
+AVATAR_SIZE = 300
+AVATAR_QUALITY = 85
+
+def process_avatar(file):
+    """Process and optimize uploaded avatar image."""
     try:
         img = Image.open(file)
     except Exception as e:
         raise ValueError(f"Invalid image format: {e}")
     
-    # Convert RGBA/palette to RGB
     if img.mode in ('RGBA', 'LA', 'P'):
         background = Image.new('RGB', img.size, (255, 255, 255))
         if img.mode == 'P':
@@ -233,14 +280,12 @@ def process_avatar(file: BinaryIO) -> IO[bytes]:
         background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
         img = background
     
-    # Crop to square
     width, height = img.size
     size = min(width, height)
     left = (width - size) // 2
     top = (height - size) // 2
     img = img.crop((left, top, left + size, top + size))
     
-    # Resize and optimize
     img = img.resize((AVATAR_SIZE, AVATAR_SIZE), Image.Resampling.LANCZOS)
     
     output = io.BytesIO()
@@ -265,7 +310,6 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -274,12 +318,11 @@ def admin_required(f):
         
         user = User.query.get(session['user_id'])
         if not user or user.role != 'admin':
-            flash('Cần quyền admin', 'danger')
+            flash('Admin permission required', 'danger')
             return redirect(url_for('gallery'))
         
         return f(*args, **kwargs)
     return decorated_function
-
 
 def time_ago(upload_time):
     now = datetime.utcnow()
@@ -300,12 +343,7 @@ def time_ago(upload_time):
     years = days / 365
     return f"{int(years)} years ago"
 
-
 def get_username_html(user):
-    """
-    Return HTML for username with badges and effects
-    Used everywhere to display user name
-    """
     html = f'<span class="username-display'
     
     if user.is_most_liked():
@@ -324,15 +362,9 @@ def get_username_html(user):
     
     return html
 
-
 def get_user_badges(user):
-    """
-    Return list of role badges for user
-    Used to display role badges consistently
-    """
     badges = []
     
-    # Admin badge (highest priority)
     if user.role == 'admin':
         badges.append({
             'class': 'role-badge-admin',
@@ -340,7 +372,6 @@ def get_user_badges(user):
             'text': 'Admin'
         })
     
-    # Achievement badges
     if user.is_most_liked():
         badges.append({
             'class': 'role-badge-most-liked',
@@ -357,28 +388,20 @@ def get_user_badges(user):
     return badges
 
 def get_carousel_badges(user, photo_count):
-    """
-    Return list of badges for animated carousel
-    Includes achievements, ranks, and milestone badges
-    """
     badges = []
     
-    # Admin badge
     if user.role == 'admin':
         badges.append({'icon': '🛡️', 'text': 'Admin', 'class': 'bg-shield'})
     
-    # Achievement badges
     if user.is_most_liked():
         badges.append({'icon': '🔥', 'text': 'Most Liked', 'class': 'bg-fire'})
     
     if user.is_top_creator():
         badges.append({'icon': '⭐', 'text': 'Top Creator', 'class': 'bg-star'})
     
-    # Verified badge
     if user.is_verified:
-        badges.append({'icon': '✓', 'text': 'Verified', 'class': 'bg-check'})
+        badges.append({'icon': '✔', 'text': 'Verified', 'class': 'bg-check'})
     
-    # Rank medals
     rank_badge = user.get_rank_badge()
     if rank_badge:
         if rank_badge['badge'] == '🥇':
@@ -388,7 +411,6 @@ def get_carousel_badges(user, photo_count):
         elif rank_badge['badge'] == '🥉':
             badges.append({'icon': '🥉', 'text': 'Bronze Medal', 'class': 'bg-lightning'})
     
-    # Milestone badges
     if photo_count >= 10:
         badges.append({'icon': '💎', 'text': 'Prolific', 'class': 'bg-diamond'})
     
@@ -398,21 +420,10 @@ def get_carousel_badges(user, photo_count):
     return badges
 
 def get_current_user():
-    """Helper to get current logged in user"""
     if 'user_id' in session:
         return User.query.get(session['user_id'])
     return None
 
-def clear_all_gallery_caches():
-    """Clear gallery cache for all users"""
-    # Since cache keys are user-specific, we need to clear all possible gallery caches
-    # Alternatively, switch to a global cache key to simplify this
-    users = User.query.all()
-    for user in users:
-        cache_key = f'gallery_photos_{user.id}'
-        cache.delete(cache_key)
-
-# Inject helper functions into Jinja globals
 app.jinja_env.globals.update(
     time_ago=time_ago, 
     get_username_html=get_username_html, 
@@ -422,9 +433,7 @@ app.jinja_env.globals.update(
 )
 
 # ========== ROUTES ==========
-# Application routes for handling HTTP requests
 def get_user(user_id):
-    """Helper function to get user by ID"""
     return User.query.get(user_id)
 
 @app.context_processor
@@ -457,7 +466,7 @@ def register():
             return render_template('register.html')
         
         if len(password) < 6:
-            flash('Password must be at least 6 characters long', 'danger')
+            flash('Password must be at least 6 characters', 'danger')
             return render_template('register.html')
         
         if User.query.filter_by(username=username).first():
@@ -465,7 +474,7 @@ def register():
             return render_template('register.html')
         
         if User.query.filter_by(email=email).first():
-            flash('Email is already registered', 'danger')
+            flash('Email already registered', 'danger')
             return render_template('register.html')
         
         colors = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444', '#06b6d4', '#f97316']
@@ -526,48 +535,57 @@ def gallery():
         'photos': pagination.items,
         'photos_json': [p.to_dict() for p in pagination.items],
         'current_user': User.query.get(session['user_id']),
-        'pagination': pagination  # Để frontend xử lý next/prev
+        'pagination': pagination
     }
     return render_template('gallery.html', **data)
 
-# ========== ASYNC IMAGE PROCESSING ==========
-# Background image processing with ThreadPoolExecutor
-executor = ThreadPoolExecutor(max_workers=4)
+# ========== IMAGE PROCESSING ==========
+executor = ThreadPoolExecutor(max_workers=2)
 
-def optimize_image(filepath: str, photo_id: int) -> None:
-    """Background task: optimize uploaded image (resize + thumbnail)."""
+def optimize_image(filepath: str, filename: str, photo_id: int) -> None:
+    """Background task: optimize and upload to R2"""
     try:
-        # Generate thumbnail (300x300)
         img = Image.open(filepath)
-        img.thumbnail((300, 300), Image.Resampling.LANCZOS)
-        thumb_path = os.path.splitext(filepath)[0] + "_thumb.jpg"
-        img.save(thumb_path, 'JPEG', quality=85, optimize=True)
-
-        # Optimize original image (resize if too large)
-        img_full = Image.open(filepath)
-        if img_full.width > 1920 or img_full.height > 1920:
-            img_full.thumbnail((1920, 1920), Image.Resampling.LANCZOS)
-        img_full.save(filepath, 'JPEG', quality=90, optimize=True)
-
-        app.logger.info(f"✅ Optimized image for photo {photo_id}")
-
-    except Exception as e:
-        app.logger.error(f"❌ Error processing image {photo_id}: {str(e)}", exc_info=True)
         
+        # Resize if too large
+        if img.width > 1920 or img.height > 1920:
+            img.thumbnail((1920, 1920), Image.Resampling.LANCZOS)
+        
+        # Save optimized version
+        output = io.BytesIO()
+        img.save(output, format='JPEG', quality=90, optimize=True)
+        output.seek(0)
+        
+        # Upload to R2 if enabled
+        if R2_ENABLED:
+            upload_to_r2(output, f'photos/{filename}')
+            
+            # Generate and upload thumbnail
+            output.seek(0)
+            img_thumb = Image.open(output)
+            img_thumb.thumbnail((300, 300), Image.Resampling.LANCZOS)
+            thumb_output = io.BytesIO()
+            img_thumb.save(thumb_output, format='JPEG', quality=85, optimize=True)
+            thumb_output.seek(0)
+            upload_to_r2(thumb_output, f'photos/thumb_{filename}')
+        
+        app.logger.info(f"✅ Optimized photo {photo_id}")
+    except Exception as e:
+        app.logger.error(f"❌ Error processing photo {photo_id}: {e}")
 
 @app.route('/upload', methods=['GET', 'POST'])
 @login_required
 def upload():
     if request.method == 'POST':
         if 'photo' not in request.files:
-            flash('Không có file', 'danger')
+            flash('No file uploaded', 'danger')
             return redirect(request.url)
         
         file = request.files['photo']
         caption = request.form.get('caption', '').strip()
         
         if file.filename == '':
-            flash('Không có file', 'danger')
+            flash('No file selected', 'danger')
             return redirect(request.url)
         
         if file and allowed_file(file.filename):
@@ -584,25 +602,23 @@ def upload():
             db.session.add(photo)
             db.session.commit()
 
-            # Executor process background image optimization
-            executor.submit(optimize_image, filepath, photo.id)
-
-            cache.delete('gallery_photos_global')
+            # Process in background
+            executor.submit(optimize_image, filepath, filename, photo.id)
 
             flash('Photo uploaded successfully!', 'success')
             return redirect(url_for('gallery'))
         else:
-            flash('Only JPG, PNG, GIF files are allowed', 'danger')
+            flash('Only JPG, PNG, GIF allowed', 'danger')
 
     return render_template('upload.html')
 
 @app.teardown_appcontext
 def shutdown_executor(exception=None):
-    """Gracefully shutdown background executor."""
     executor.shutdown(wait=False)
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
+    """Serve local files (fallback if R2 not enabled)"""
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 @app.route('/photo/<int:photo_id>/delete', methods=['POST'])
@@ -612,9 +628,15 @@ def delete_photo(photo_id):
     user = User.query.get(session['user_id'])
     
     if photo.user_id != session['user_id'] and user.role != 'admin':
-        flash('You do not have permission to delete this photo', 'danger')
+        flash('Permission denied', 'danger')
         return redirect(url_for('gallery'))
     
+    # Delete from R2
+    if R2_ENABLED:
+        delete_from_r2(f'photos/{photo.filename}')
+        delete_from_r2(f'photos/thumb_{photo.filename}')
+    
+    # Delete local file
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], photo.filename)
     if os.path.exists(filepath):
         os.remove(filepath)
@@ -622,9 +644,7 @@ def delete_photo(photo_id):
     db.session.delete(photo)
     db.session.commit()
 
-    cache.delete('gallery_photos_global')
-
-    flash('Photo deleted successfully!', 'success')
+    flash('Photo deleted', 'success')
     return redirect(url_for('gallery'))
 
 @app.route('/photo/<int:photo_id>/like', methods=['POST'])
@@ -648,7 +668,6 @@ def like_photo(photo_id):
 @app.route('/profile')
 @login_required
 def profile():
-    """Redirect to user profile"""
     return redirect(url_for('view_user_profile', user_id=session['user_id']))
 
 @app.route('/avatars/<filename>')
@@ -659,67 +678,72 @@ def avatar_file(filename):
 @login_required
 def upload_avatar(user_id):
     if user_id != session['user_id']:
-        return jsonify({'error': 'You do not have permission'}), 403
+        return jsonify({'error': 'Permission denied'}), 403
     
     if 'avatar' not in request.files:
-        return jsonify({'error': 'No file uploaded'}), 400
+        return jsonify({'error': 'No file'}), 400
 
     file = request.files['avatar']
     
     if file.filename == '':
-        return jsonify({'error': 'No file uploaded'}), 400
+        return jsonify({'error': 'No file'}), 400
 
     if not allowed_file(file.filename):
-        return jsonify({'error': 'Just accept JPG, PNG, GIF files'}), 400
+        return jsonify({'error': 'Invalid format'}), 400
 
-    # Check file size
-    file.seek(0, 2)  # Seek to end
+    file.seek(0, 2)
     size = file.tell()
-    file.seek(0)  # Reset
+    file.seek(0)
     
     if size > app.config['MAX_AVATAR_SIZE']:
         return jsonify({'error': 'File too large (max 2MB)'}), 400
     
     try:
-        # Process and optimize image
         processed_image = process_avatar(file)
-
-        # Create unique filename
         filename = f"avatar_{user_id}_{secrets.token_hex(8)}.jpg"
+        
+        # Upload to R2 if enabled
+        if R2_ENABLED:
+            upload_to_r2(processed_image, f'avatars/{filename}')
+        
+        # Save local copy
         filepath = os.path.join(app.config['AVATAR_FOLDER'], filename)
-
-        # Save file
+        processed_image.seek(0)
         with open(filepath, 'wb') as f:
             f.write(processed_image.read())
 
-        # Delete old avatar if exists
+        # Delete old avatar
         user = User.query.get(user_id)
         if user.avatar_filename:
+            if R2_ENABLED:
+                delete_from_r2(f'avatars/{user.avatar_filename}')
             old_path = os.path.join(app.config['AVATAR_FOLDER'], user.avatar_filename)
             if os.path.exists(old_path):
                 os.remove(old_path)
 
-        # Update database
         user.avatar_filename = filename
         db.session.commit()
         
         return jsonify({
             'success': True,
-            'avatar_url': url_for('avatar_file', filename=filename)
+            'avatar_url': user.get_avatar_url()
         }), 200
         
     except Exception as e:
-        return jsonify({'error': f'Error processing image: {str(e)}'}), 500
+        return jsonify({'error': f'Processing error: {str(e)}'}), 500
 
 @app.route('/user/<int:user_id>/delete-avatar', methods=['DELETE'])
 @login_required
 def delete_avatar(user_id):
     if user_id != session['user_id']:
-        return jsonify({'error': 'You do not have permission'}), 403
+        return jsonify({'error': 'Permission denied'}), 403
     
     user = User.query.get(user_id)
     
     if user.avatar_filename:
+        if R2_ENABLED:
+            delete_from_r2(f'avatars/{user.avatar_filename}')
+        
         filepath = os.path.join(app.config['AVATAR_FOLDER'], user.avatar_filename)
         if os.path.exists(filepath):
             os.remove(filepath)
@@ -743,7 +767,7 @@ def view_user_profile(user_id):
 @login_required
 def edit_profile(user_id):
     if user_id != session['user_id']:
-        flash('You do not have permission to edit this profile', 'danger')
+        flash('Permission denied', 'danger')
         return redirect(url_for('view_user_profile', user_id=user_id))
     
     user = User.query.get_or_404(user_id)
@@ -751,25 +775,23 @@ def edit_profile(user_id):
     contact_info = request.form.get('contact_info', '').strip()
     
     if len(bio) > 500:
-        flash('Bio must be at most 500 characters', 'danger')
+        flash('Bio too long (max 500 chars)', 'danger')
         return redirect(url_for('view_user_profile', user_id=user_id))
     
     if len(contact_info) > 200:
-        flash('Contact information must be at most 200 characters', 'danger')
+        flash('Contact info too long (max 200 chars)', 'danger')
         return redirect(url_for('view_user_profile', user_id=user_id))
     
     user.bio = bio
     user.contact_info = contact_info
     db.session.commit()
 
-    flash('Profile information updated successfully!', 'success')
+    flash('Profile updated!', 'success')
     return redirect(url_for('view_user_profile', user_id=user_id))
 
 @app.route('/leaderboard')
 @login_required
 def leaderboard():
-    """Leaderboard of top users by likes"""
-    # Get top users by total likes
     top_users = db.session.query(
         User,
         func.count(Like.id).label('total_likes')
@@ -788,21 +810,21 @@ def change_password():
         user = User.query.get(session['user_id'])
         
         if not user.check_password(current_password):
-            flash('Current password is incorrect', 'danger')
+            flash('Current password incorrect', 'danger')
             return render_template('change_password.html')
         
         if new_password != confirm_password:
-            flash('New passwords do not match', 'danger')
+            flash('Passwords do not match', 'danger')
             return render_template('change_password.html')
         
         if len(new_password) < 6:
-            flash('Password must be at least 6 characters long', 'danger')
+            flash('Password must be at least 6 characters', 'danger')
             return render_template('change_password.html')
         
         user.set_password(new_password)
         db.session.commit()
 
-        flash('Password changed successfully!', 'success')
+        flash('Password changed!', 'success')
         return redirect(url_for('profile'))
     
     return render_template('change_password.html')
@@ -822,7 +844,6 @@ def admin_panel():
         'total_comments': Comment.query.count()
     }
     
-    # Top users by photo count
     top_users = sorted(users, key=lambda u: len(u.photos), reverse=True)[:5]
     
     return render_template('admin.html', 
@@ -837,19 +858,18 @@ def toggle_block_user(user_id):
     user = User.query.get_or_404(user_id)
     
     if user.id == session['user_id']:
-        flash('You cannot block yourself', 'danger')
+        flash('Cannot block yourself', 'danger')
         return redirect(url_for('admin_panel'))
     
     if user.role == 'admin':
-        flash('You cannot block another admin', 'danger')
+        flash('Cannot block admin', 'danger')
         return redirect(url_for('admin_panel'))
     
     user.is_blocked = not user.is_blocked
     db.session.commit()
 
     status = 'blocked' if user.is_blocked else 'unblocked'
-    app.logger.info(f"Admin {session['username']} {status} user {user.username} (ID: {user.id})")
-    flash(f'User {user.username} has been {status}', 'success')
+    flash(f'User {user.username} {status}', 'success')
     return redirect(url_for('admin_panel'))
 
 @app.route('/admin/create-admin', methods=['POST'])
@@ -859,11 +879,11 @@ def create_admin():
     user = User.query.get_or_404(user_id)
     
     if user.role == 'admin':
-        flash(f'User {user.username} is already an admin', 'info')
+        flash(f'{user.username} already admin', 'info')
     else:
         user.role = 'admin'
         db.session.commit()
-        flash(f'User {user.username} has been promoted to admin', 'success')
+        flash(f'{user.username} promoted to admin', 'success')
 
     return redirect(url_for('admin_panel'))
 
@@ -875,15 +895,13 @@ def toggle_verify_user(user_id):
     db.session.commit()
 
     status = 'verified' if user.is_verified else 'unverified'
-    flash(f'User {user.username} has been {status}', 'success')
+    flash(f'User {user.username} {status}', 'success')
     return redirect(url_for('admin_panel'))
 
 # ========== COMMENT ROUTES ==========
-# Routes for handling photo comments
 @app.route('/photo/<int:photo_id>/comments', methods=['GET'])
 @login_required
 def get_comments(photo_id):
-    """Get list of comments for a photo"""
     photo = Photo.query.get_or_404(photo_id)
     comments = Comment.query.filter_by(photo_id=photo_id).order_by(Comment.created_at.asc()).all()
     return jsonify([comment.to_dict() for comment in comments])
@@ -891,7 +909,6 @@ def get_comments(photo_id):
 @app.route('/photo/<int:photo_id>/comment', methods=['POST'])
 @login_required
 def add_comment(photo_id):
-    """Add a new comment"""
     photo = Photo.query.get_or_404(photo_id)
     data = request.get_json()
     
@@ -900,7 +917,7 @@ def add_comment(photo_id):
         return jsonify({'error': 'Comment cannot be empty'}), 400
     
     if len(text) > 1000:
-        return jsonify({'error': 'Comment must be at most 1000 characters'}), 400
+        return jsonify({'error': 'Comment too long (max 1000 chars)'}), 400
 
     comment = Comment(
         user_id=session['user_id'],
@@ -915,43 +932,46 @@ def add_comment(photo_id):
 @app.route('/comment/<int:comment_id>/delete', methods=['DELETE'])
 @login_required
 def delete_comment(comment_id):
-    """Xóa comment"""
     comment = Comment.query.get_or_404(comment_id)
     user = User.query.get(session['user_id'])
     
-    # Only allow deleting own comments or admin
     if comment.user_id != session['user_id'] and user.role != 'admin':
-        return jsonify({'error': 'You do not have permission to delete this comment'}), 403
+        return jsonify({'error': 'Permission denied'}), 403
     
     db.session.delete(comment)
     db.session.commit()
     
     return jsonify({'success': True}), 200
 
-# ========== ERROR HANDLING ==========
-# Custom error pages for 404, 500, and 403
+# ========== ERROR HANDLERS ==========
 @app.errorhandler(404)
 def page_not_found(e):
-    """Custom 404 error page"""
     return render_template('404.html'), 404
 
 @app.errorhandler(500)
 def internal_server_error(e):
-    """Custom 500 error page"""
     return render_template('500.html'), 500
 
 @app.errorhandler(403)
 def forbidden(e):
-    """Custom 403 error page"""
-    flash('You do not have permission to access this resource', 'danger')
+    flash('Permission denied', 'danger')
     return redirect(url_for('gallery'))
 
+# ========== HEALTH CHECK ==========
+@app.route('/health')
+def health_check():
+    """Health check endpoint for monitoring"""
+    try:
+        # Test DB connection
+        db.session.execute(db.text('SELECT 1'))
+        return jsonify({'status': 'healthy', 'database': 'connected'}), 200
+    except Exception as e:
+        return jsonify({'status': 'unhealthy', 'error': str(e)}), 500
 
-# ========== MAIN EXECUTION ==========
-# Run the Flask application
+# ========== MAIN ==========
 if __name__ == '__main__':
     app.run(
         debug=os.getenv('FLASK_DEBUG', 'False') == 'True',
-        host=os.getenv('FLASK_HOST', '127.0.0.1'),
+        host=os.getenv('FLASK_HOST', '0.0.0.0'),
         port=int(os.getenv('FLASK_PORT', 5000))
     )
