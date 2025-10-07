@@ -962,10 +962,16 @@ def test_r2():
     if not s3_client:
         return "R2 not configured", 500
     try:
-        response = s3_client.list_buckets()
-        return jsonify(response)
+        test_key = "test_r2_connection.txt"
+        s3_client.put_object(
+            Bucket=R2_BUCKET,
+            Key=test_key,
+            Body=b"Hello R2 from Render!",
+            ContentType="text/plain"
+        )
+        return f"✅ Successfully uploaded {test_key} to R2 bucket '{R2_BUCKET}'"
     except Exception as e:
-        return f"R2 error: {e}", 500
+        return f"❌ Upload test failed: {e}", 500
 
 # ========== HEALTH CHECK ==========
 @app.route('/health')
