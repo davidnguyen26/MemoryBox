@@ -723,12 +723,51 @@ def upload():
             flash('No file selected', 'danger')
             return redirect(request.url)
         
-        if file and allowed_file(file.filename):
+        if not file or not allowed_file(file.filename):
+            flash('Only JPG, PNG, GIF allowed', 'danger')
+            return redirect(request.url)
+
+        try:
+            # 🔥 ĐỌC FILE VÀO MEMORY NGAY (không save disk trước)
+            file_bytes = file.read()
+            
+            # ⚡ XỬ LÝ NHANH NGAY TẠI ĐÂY (quick resize)
+            file_data = io.BytesIO(file_bytes)
+            img = Image.open(file_data)
+            img.load()
+            
+            # Convert sang RGB nếu cần
+            if img.mode in ('RGBA', 'LA', 'P'):
+                background = Image.new('RGB', img.size, (255, 255, 255))
+                if img.mode == 'P':
+                    img = img.convert('RGBA')
+                background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
+                img = background
+            
+            # Resize nhanh (dùng BILINEAR thay LANCZOS = nhanh hơn 3x)
+            if img.width > 1920 or img.height > 1920:
+                img.thumbnail((1920, 1920), Image.Resampling.BILINEAR)
+            
+            # Tạo filename
             original_filename = secure_filename(file.filename)
             filename = f"{secrets.token_hex(8)}_{original_filename}"
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            file.save(filepath)
+            
+            # 🚀 LƯU NHANH VÀO R2 (nếu có) hoặc disk
+            output = io.BytesIO()
+            img.save(output, format='JPEG', quality=85, optimize=False)  # ⚡ optimize=False = nhanh hơn
+            output.seek(0)
+            
+            if R2_ENABLED:
+                # Upload R2 ngay (nhanh vì không qua disk)
+                upload_to_r2(output, f'photos/{filename}')
+            else:
+                # Fallback: save local
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                with open(filepath, 'wb') as f:
+                    output.seek(0)
+                    f.write(output.read())
 
+            # 💾 TẠO RECORD NGAY (không chờ optimize)
             photo = Photo(
                 filename=filename,
                 caption=caption if caption else None,
@@ -737,24 +776,68 @@ def upload():
             db.session.add(photo)
             db.session.commit()
 
-            # Process in background
+            # 🎯 TỐI ƯU HÓA SAU (thumbnail, compression cao hơn) - KHÔNG CHẶN
             try:
-                if executor._shutdown:
-                    app.logger.warning("⚠️ Executor shut down, processing synchronously")
-                    optimize_image(filepath, filename, photo.id)
-                else:
-                    executor.submit(optimize_image, filepath, filename, photo.id)
+                if not executor._shutdown:
+                    executor.submit(create_thumbnail_async, filename, photo.id)
             except Exception as e:
-                app.logger.error(f"❌ Executor error: {e}")
-                optimize_image(filepath, filename, photo.id)
+                app.logger.warning(f"⚠️ Thumbnail creation skipped: {e}")
 
             flash('Photo uploaded successfully!', 'success')
             return redirect(url_for('gallery'))
-        else:
-            flash('Only JPG, PNG, GIF allowed', 'danger')
+            
+        except Exception as e:
+            app.logger.error(f"❌ Upload error: {e}")
+            flash('Upload failed. Please try again.', 'danger')
+            return redirect(request.url)
 
     return render_template('upload.html')
 
+def create_thumbnail_async(filename: str, photo_id: int):
+    try:
+        if R2_ENABLED:
+            # Download từ R2
+            file_url = f"{R2_PUBLIC_URL}/photos/{filename}"
+            r = requests.get(file_url, timeout=10)
+            if r.status_code != 200:
+                return
+            
+            img = Image.open(io.BytesIO(r.content))
+            img.load()
+            
+            # Tạo thumbnail
+            img.thumbnail((300, 300), Image.Resampling.LANCZOS)
+            thumb_output = io.BytesIO()
+            img.save(thumb_output, format='JPEG', quality=90, optimize=True)
+            thumb_output.seek(0)
+            
+            # Upload thumbnail
+            upload_to_r2(thumb_output, f'photos/thumb_{filename}')
+            app.logger.info(f"✅ Thumbnail created for photo {photo_id}")
+        else:
+            # Local storage
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            if not os.path.exists(filepath):
+                return
+            
+            with open(filepath, 'rb') as f:
+                img = Image.open(f)
+                img.load()
+            
+            # Optimize original file
+            img.thumbnail((1920, 1920), Image.Resampling.LANCZOS)
+            optimized = io.BytesIO()
+            img.save(optimized, format='JPEG', quality=90, optimize=True)
+            
+            with open(filepath, 'wb') as f:
+                optimized.seek(0)
+                f.write(optimized.read())
+            
+            app.logger.info(f"✅ Optimized photo {photo_id}")
+            
+    except Exception as e:
+        app.logger.error(f"❌ Thumbnail error for {photo_id}: {e}")
+        
 @app.teardown_appcontext
 def shutdown_session(exception=None):
     """Cleanup session sau mỗi request"""
