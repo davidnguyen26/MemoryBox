@@ -293,40 +293,42 @@ def process_avatar(file_data):
         BytesIO object containing processed JPEG image
     """
     try:
-        # ✅ Reset position to start
+        # Ensure file_data is at start
         file_data.seek(0)
         
         # Open image from BytesIO
         img = Image.open(file_data)
         img.load()  # Load image data into memory
         
+        # Convert to RGB if needed
+        if img.mode in ('RGBA', 'LA', 'P'):
+            background = Image.new('RGB', img.size, (255, 255, 255))
+            if img.mode == 'P':
+                img = img.convert('RGBA')
+            background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
+            img = background
+        
+        # Crop to square
+        width, height = img.size
+        size = min(width, height)
+        left = (width - size) // 2
+        top = (height - size) // 2
+        img = img.crop((left, top, left + size, top + size))
+        
+        # Resize
+        img = img.resize((AVATAR_SIZE, AVATAR_SIZE), Image.Resampling.LANCZOS)
+        
+        # Save to BytesIO
+        output = io.BytesIO()
+        img.save(output, format='JPEG', quality=AVATAR_QUALITY, optimize=True)
+        output.seek(0)
+        
+        return output
     except Exception as e:
         raise ValueError(f"Invalid image format: {e}")
-    
-    # Convert to RGB if needed
-    if img.mode in ('RGBA', 'LA', 'P'):
-        background = Image.new('RGB', img.size, (255, 255, 255))
-        if img.mode == 'P':
-            img = img.convert('RGBA')
-        background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
-        img = background
-    
-    # Crop to square
-    width, height = img.size
-    size = min(width, height)
-    left = (width - size) // 2
-    top = (height - size) // 2
-    img = img.crop((left, top, left + size, top + size))
-    
-    # Resize
-    img = img.resize((AVATAR_SIZE, AVATAR_SIZE), Image.Resampling.LANCZOS)
-    
-    # Save to BytesIO
-    output = io.BytesIO()
-    img.save(output, format='JPEG', quality=AVATAR_QUALITY, optimize=True)
-    output.seek(0)
-    
-    return output
+    finally:
+        # Ensure input file_data is not closed here
+        pass
 
 def login_required(f):
     @wraps(f)
@@ -833,7 +835,7 @@ def upload_avatar(user_id):
         return jsonify({'error': 'Invalid format'}), 400
 
     try:
-        # ✅ Read file into memory ONCE
+        # Read file into memory ONCE
         file_bytes = file.read()
         
         # Check size
@@ -848,17 +850,18 @@ def upload_avatar(user_id):
         
         filename = f"avatar_{user_id}_{secrets.token_hex(8)}.jpg"
         
-        # Upload to R2 if enabled
-        if R2_ENABLED:
-            processed_image.seek(0)
-            upload_to_r2(processed_image, f'avatars/{filename}')
-        
         # Save local copy
         filepath = os.path.join(app.config['AVATAR_FOLDER'], filename)
-        processed_image.seek(0)
         with open(filepath, 'wb') as f:
+            processed_image.seek(0)
             f.write(processed_image.read())
-
+        
+        # Upload to R2 if enabled
+        if R2_ENABLED:
+            # Create a new BytesIO for R2 upload to avoid reusing closed file
+            processed_image.seek(0)
+            upload_to_r2(io.BytesIO(processed_image.read()), f'avatars/{filename}')
+        
         # Delete old avatar
         user = User.query.get(user_id)
         if user.avatar_filename:
