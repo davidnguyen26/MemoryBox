@@ -291,6 +291,7 @@ class Comment(db.Model):
                 'username': self.user.username,
                 'avatar_color': self.user.avatar_color,
                 'avatar_url': self.user.get_avatar_url(),
+                'avatar_filename': self.user.avatar_filename,
                 'is_verified': self.user.is_verified
             }
         }
