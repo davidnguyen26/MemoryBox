@@ -1281,6 +1281,17 @@ def health_check():
         'timestamp': datetime.utcnow().isoformat()
     }), 200
 
+@app.route('/health/db')
+def db_health():
+    """Separate DB check - not used for keep-alive"""
+    try:
+        with db.engine.connect() as conn:
+            conn.execute(db.text('SELECT 1'))
+            conn.commit()
+        return 'DB_OK', 200
+    except:
+        return 'DB_ERROR', 503
+    
 # ========== MAIN ==========
 if __name__ == '__main__':
     app.run(
