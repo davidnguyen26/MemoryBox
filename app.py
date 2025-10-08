@@ -1271,32 +1271,15 @@ def shutdown_executor():
 # ========== HEALTH CHECK ==========
 @app.route('/health')
 def health_check():
-    """Enhanced health check with retry"""
-    try:
-        # Quick health check - không query phức tạp
-        with db.engine.connect() as conn:
-            conn.execute(db.text('SELECT 1'))
-            conn.commit()
-        
-        return jsonify({
-            'status': 'healthy',
-            'database': 'connected',
-            'timestamp': datetime.utcnow().isoformat()
-        }), 200
-    except exc.OperationalError as e:
-        app.logger.error(f"Health check failed: {e}")
-        return jsonify({
-            'status': 'unhealthy',
-            'database': 'disconnected',
-            'error': 'Connection timeout',
-            'timestamp': datetime.utcnow().isoformat()
-        }), 503
-    except Exception as e:
-        app.logger.error(f"Health check error: {e}")
-        return jsonify({
-            'status': 'error',
-            'error': str(e)
-        }), 500
+    """
+    Health check WITHOUT database query
+    Purpose: Keep Render instance warm, not test DB connection
+    """
+    return jsonify({
+        'status': 'ok',
+        'service': 'memorybox',
+        'timestamp': datetime.utcnow().isoformat()
+    }), 200
 
 # ========== MAIN ==========
 if __name__ == '__main__':
